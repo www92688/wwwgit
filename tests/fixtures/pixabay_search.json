@@ -1,0 +1,37 @@
+{
+  "total": 2,
+  "hits": [
+    {
+      "id": 9001,
+      "pageURL": "https://pixabay.com/videos/9001/",
+      "type": "film",
+      "tags": "carpet cleaning",
+      "duration": 18,
+      "views": 1234,
+      "picture_id": "77777",
+      "user_id": 42,
+      "user": "bob",
+      "videos": {
+        "large": {"url": "https://cdn.pixabay.com/video/2020/9001_large.mp4", "width": 1920, "height": 1080, "size": 8388608},
+        "medium": {"url": "https://cdn.pixabay.com/video/2020/9001_medium.mp4", "width": 1280, "height": 720, "size": 3145728},
+        "small": {"url": "https://cdn.pixabay.com/video/2020/9001_small.mp4", "width": 960, "height": 540, "size": 1048576},
+        "tiny": {"url": "https://cdn.pixabay.com/video/2020/9001_tiny.gif", "width": 640, "height": 360, "size": 524288}
+      }
+    },
+    {
+      "id": 9002,
+      "pageURL": "https://pixabay.com/videos/9002/",
+      "type": "film",
+      "tags": "pipe repair",
+      "duration": 45,
+      "views": 99999,
+      "picture_id": "",
+      "user_id": 43,
+      "user": "carol",
+      "videos": {
+        "large": {"url": "https://cdn.pixabay.com/video/2020/9002_large.mp4", "width": 1920, "height": 1080, "size": 20971520},
+        "medium": {"url": "https://cdn.pixabay.com/video/2020/9002_medium.mp4", "width": 1280, "height": 720, "size": 6291456}
+      }
+    }
+  ]
+}

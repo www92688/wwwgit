@@ -1,0 +1,72 @@
+# CI 流水线（详设 17.1 分层；D4 范围）
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  static:
+    name: Lint & TypeCheck
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests
+      - run: mypy
+
+  unit:
+    name: Unit tests (no ffmpeg needed)
+    runs-on: windows-latest
+    needs: static
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      # 覆盖率门禁：services ≥80% / core ≥65% /
+      # 关键算法(similarity/postprocess/scene/motion/rhythm) ≥90%
+      - name: Run unit tests with coverage gate
+        shell: pwsh
+        run: |
+          # 汇总采数（门禁阈值口径见 README：services>=80, core>=65）
+          pytest tests/unit --tb=short `
+            --cov=ych.services --cov=ych.core --cov-report=xml
+          # 关键算法 ≥90%（逐文件单独卡口）。
+          # 注意不可用点号单模块作 --cov 目标（如 ych.core.m3_dedup.similarity）：
+          # 该形态会提前导入目标模块，在 numpy+cv2 组合下双重初始化直接崩溃；
+          # 文件路径目标又静默零数据。故以包级目标采集，
+          # 再由校验脚本按文件卡阈值（scripts/check_cov_gate.py 头注有完整分析）
+          pytest tests/unit/core/m3 tests/unit/s2_ai/test_postprocess.py `
+            --cov=ych.core.m3_dedup --cov=ych.services.s2_ai `
+            --cov-report=xml:cov_key.xml
+          python scripts/check_cov_gate.py cov_key.xml 90 `
+            similarity.py scene_detector.py motion_analyzer.py rhythm_analyzer.py `
+            postprocess.py
+
+  integration:
+    name: Integration (real ffmpeg)
+    runs-on: windows-latest
+    needs: unit
+    # 夜间/发版前手动触发；PR 不阻塞
+    if: github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: choco install ffmpeg -y --no-progress
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/integration -m integration --tb=short
+
+  schedule-trigger:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "scheduled"

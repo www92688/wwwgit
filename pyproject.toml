@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ych"
+version = "0.1.0"
+description = "源重构——爽文短视频素材采集、预处理与智能去重工具"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "MIT" }
+dependencies = [
+    "PySide6>=6.6,<7",
+    "opencv-python-headless>=4.9,<5",
+    "onnxruntime>=1.17",
+    # 上限钉住 2.x：其类型存根使用 PEP 695 语法，mypy 以 python_version=3.10
+    # 解析会报错（DEC-006）；1.26 为详设 2.1 声明的下限版本
+    "numpy>=1.26,<2",
+    "requests>=2.31",
+    "keyring>=24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-qt",
+    "pytest-cov",
+    "responses",
+    "mypy",
+    "ruff",
+    "pyinstaller>=6.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+# RUF001/002/003：中文全角标点被标记为"歧义字符"。
+# 本项目硬约束要求注释与用户文案为简体中文，全角标点属正常中文排版，显式豁免（DEC-007）。
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+files = ["src"]
+
+# 仅豁免无 stub 的第三方库，业务代码全量严格
+[[tool.mypy.overrides]]
+module = [
+    "cv2.*",
+    "onnxruntime.*",
+    "keyring.*",
+    "keyring.errors",
+    "pytestqt.*",
+    "responses.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "integration: 需要真实 ffmpeg 的端到端用例（缺失自动跳过）",
+]

@@ -1,0 +1,60 @@
+/* 统一主题（浅色为主，跟随系统深色由 Qt 调色板兜底） */
+
+QWidget {
+    font-family: "Microsoft YaHei UI", "PingFang SC", sans-serif;
+    font-size: 13px;
+    color: #2b2b2b;
+}
+
+QMainWindow, QDialog { background: #f5f6fa; }
+
+#navList {
+    background: #2f3542; color: #dcdde1;
+    border: none; outline: none;
+    min-width: 148px; max-width: 168px;
+}
+#navList::item { padding: 12px 16px; }
+#navList::item:selected { background: #57606f; color: #ffffff; }
+
+QPushButton {
+    background: #3742fa; color: white; border: none;
+    border-radius: 4px; padding: 7px 18px;
+}
+QPushButton:hover { background: #2f35c0; }
+QPushButton:disabled { background: #a4b0be; }
+
+QPushButton#secondaryBtn {
+    background: #e4e6ef; color: #2b2b2b;
+}
+QPushButton#secondaryBtn:hover { background: #d3d6e4; }
+
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+    border: 1px solid #ced6e0; border-radius: 4px;
+    padding: 5px 8px; background: white;
+}
+ QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border-color: #3742fa; }
+
+QTableWidget, QTreeWidget, QListWidget {
+    border: 1px solid #dfe4ea; border-radius: 4px; background: white;
+}
+
+QHeaderView::section {
+    background: #eceef4; border: none; padding: 6px;
+}
+
+QProgressBar {
+    border: none; background: #e4e6ef; border-radius: 4px;
+    height: 14px; text-align: center;
+}
+QProgressBar::chunk { background: #3742fa; border-radius: 4px; }
+
+QLabel#toastError { color: #b71540; }
+QLabel#emptyTitle { color: #a4b0be; font-size: 17px; }
+QLabel#emptyHint { color: #ced6e0; }
+
+QLabel#cardTitle { font-weight: bold; }
+QGroupBox {
+    border: 1px solid #dfe4ea; border-radius: 6px;
+    margin-top: 10px; background: white;
+}
+QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 4px; }

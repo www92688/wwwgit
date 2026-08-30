@@ -1,0 +1,51 @@
+# Release 工作流：tag 触发 PyInstaller 构建 → Inno Setup 打包 → 附到 GitHub Release
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ffmpeg into runtime/
+        shell: pwsh
+        run: |
+          choco install ffmpeg -y --no-progress
+          New-Item -ItemType Directory -Force runtime | Out-Null
+          $src = "C:\ProgramData\chocolatey\bin"
+          Copy-Item "$src\ffmpeg.exe" runtime\
+          Copy-Item "$src\ffprobe.exe" runtime\
+      - run: pip install -e ".[dev]" pyinstaller
+      - name: Build with PyInstaller
+        run: pyinstaller scripts/build_exe.spec --noconfirm
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          # 显式安装（runner 预装版本/路径不作依赖）；中文语言包已随仓库分发
+          choco install innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (Test-Path $iscc) {
+            & $iscc scripts/installer.iss
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            echo "Inno Setup 未安装，跳过安装包（仅发布 zip）"
+          }
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/YuChongGou -DestinationPath dist/YuChongGou_portable.zip
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/YuChongGou_portable.zip
+            dist/installer/*.exe

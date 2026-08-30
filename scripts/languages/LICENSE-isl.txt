@@ -1,0 +1,7 @@
+ChineseSimplified.isl —— Inno Setup 简体中文语言文件（非官方翻译，随仓库分发）
+
+来源：https://github.com/jrsoftware/issrc/blob/is-6_7_3/Files/Languages/Unofficial/ChineseSimplified.isl
+原因：Inno Setup 6.3 起官方安装包不再捆绑非官方语言翻译，
+      随仓库分发以保证本机与 CI 的安装包构建可复现。
+许可：随 jrsoftware/issrc 分发，适用 Inno Setup 许可（BSD 风格）：
+      https://jrsoftware.org/files/is/license.txt

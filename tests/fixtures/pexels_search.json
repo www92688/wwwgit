@@ -1,0 +1,39 @@
+{
+  "page": 1,
+  "per_page": 3,
+  "total_results": 2,
+  "videos": [
+    {
+      "id": 101,
+      "width": 1920,
+      "height": 1080,
+      "url": "https://www.pexels.com/video/101/",
+      "image": "https://images.pexels.com/videos/101/free-video-101.jpg",
+      "duration": 25,
+      "user": {"name": "Alice", "id": 7},
+      "video_files": [
+        {"id": 11, "quality": "hd", "file_type": "video/mp4", "width": 1280, "height": 720,
+         "link": "https://player.example/pexels/101_720.mp4", "file_size": 1048576},
+        {"id": 12, "quality": "hls", "file_type": "video/mp4", "width": 1920, "height": 1080,
+         "link": "https://player.example/pexels/101_1080.mp4", "file_size": 4194304},
+        {"id": 13, "quality": "sd", "file_type": "video/quicktime", "width": 1920, "height": 1080,
+         "link": "https://player.example/pexels/101.mov"}
+      ]
+    },
+    {
+      "id": 202,
+      "width": 3840,
+      "height": 2160,
+      "url": "https://www.pexels.com/video/202/",
+      "image": "https://images.pexels.com/videos/202/free-video-202.jpg",
+      "duration": 8,
+      "user": {"name": "Bob", "id": 9},
+      "video_files": [
+        {"id": 21, "quality": "uhd", "file_type": "video/mp4", "width": 3840, "height": 2160,
+         "link": "https://player.example/pexels/202_2160.mp4"},
+        {"id": 22, "quality": "hd", "file_type": "video/mp4", "width": 1920, "height": 1080,
+         "link": "https://player.example/pexels/202_1080.mp4"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# Python 二进制扩展
+*.pyd
+*.so
+*.dll
+*.lib
+*.exe
+
+# 测试与工具缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+tmp_report.xml
+f1.xml
+
+# 运行产物
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
