@@ -5,7 +5,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, cast
 
 import requests
 from PySide6.QtCore import QObject, Signal
@@ -15,6 +15,7 @@ from urllib3.util.retry import Retry
 import ych
 from ych.common.cancellation import CancellationToken, ProgressFn
 from ych.common.errors import (
+    ERR_AI_REMOTE,
     ERR_NET_DNS_FAIL,
     ERR_NET_PROXY,
     ERR_NET_TIMEOUT,
@@ -52,6 +53,12 @@ def _is_dns_error(exc: BaseException) -> bool:
             return True
         cur = cur.__cause__ or cur.__context__
     return False
+
+
+def _body_snippet(resp: requests.Response, limit: int = 200) -> str:
+    """HTTP 错误响应摘要：状态码 + 响应体前段（含服务端错误说明）。"""
+    body = (resp.text or "").strip().replace("\n", " ")
+    return f"远程服务返回 {resp.status_code}：{body[:limit]}"
 
 
 class HttpClient(QObject):
@@ -101,15 +108,19 @@ class HttpClient(QObject):
         url: str,
         params: dict[str, str] | None = None,
         headers: dict[str, str] | None = None,
+        status_error_code: str = ERR_NET_TIMEOUT,
+        timeout_s: float = 30.0,
     ) -> dict[str, object] | list[object]:
-        """GET 并解析 JSON；网络错误映射 NET 域错误码后抛出。"""
+        """GET 并解析 JSON；网络错误映射 NET 域错误码后抛出。
+
+        HTTP 4xx/5xx 抛 status_error_code（调用方按自己的错误域传入），
+        消息带响应体摘要（远程服务的错误说明通常在响应体里）。
+        """
         logger.debug("GET %s", LogService.sanitize(url))
         try:
             resp = self._session.get(
-                url, params=params, headers=headers, timeout=(5, 30)
+                url, params=params, headers=headers, timeout=(5, timeout_s)
             )
-            resp.raise_for_status()
-            data = resp.json()
         except requests.exceptions.Timeout as exc:
             self.net_error.emit(ERR_NET_TIMEOUT, "连接超时")
             raise AppError(ERR_NET_TIMEOUT, "连接超时，请稍后重试", cause=exc) from exc
@@ -126,8 +137,56 @@ class HttpClient(QObject):
         except requests.exceptions.RequestException as exc:
             self.net_error.emit(ERR_NET_TIMEOUT, "请求失败")
             raise AppError(ERR_NET_TIMEOUT, "网络请求失败", cause=exc) from exc
+        if resp.status_code >= 400:
+            self.net_error.emit(status_error_code, f"HTTP {resp.status_code}")
+            raise AppError(status_error_code, _body_snippet(resp))
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise AppError(status_error_code, "响应不是有效 JSON", cause=exc) from exc
         if not isinstance(data, (dict, list)):
-            raise AppError(ERR_NET_TIMEOUT, "响应格式异常")
+            raise AppError(status_error_code, "响应格式异常")
+        return data
+
+    def post_json(
+        self,
+        url: str,
+        json_body: object,
+        headers: dict[str, str] | None = None,
+        timeout_s: float = 60.0,
+    ) -> dict[str, object] | list[object]:
+        """POST JSON 并解析 JSON 响应；HTTP 状态错误带上响应体摘要抛出。"""
+        logger.debug("POST %s", LogService.sanitize(url))
+        timeout = (5, timeout_s)
+        try:
+            resp = self._session.post(
+                url, json=cast(Any, json_body), headers=headers, timeout=timeout
+            )
+        except requests.exceptions.Timeout as exc:
+            self.net_error.emit(ERR_NET_TIMEOUT, "连接超时")
+            raise AppError(ERR_NET_TIMEOUT, "连接超时，请稍后重试", cause=exc) from exc
+        except requests.exceptions.ProxyError as exc:
+            self.net_error.emit(ERR_NET_PROXY, "代理不可用")
+            raise AppError(
+                ERR_NET_PROXY, "代理不可用，请检查代理设置", cause=exc
+            ) from exc
+        except requests.exceptions.ConnectionError as exc:
+            code = ERR_NET_DNS_FAIL if _is_dns_error(exc) else ERR_NET_TIMEOUT
+            msg = "域名解析失败" if code == ERR_NET_DNS_FAIL else "网络连接失败"
+            self.net_error.emit(code, msg)
+            raise AppError(code, msg, cause=exc) from exc
+        except requests.exceptions.RequestException as exc:
+            self.net_error.emit(ERR_NET_TIMEOUT, "请求失败")
+            raise AppError(ERR_NET_TIMEOUT, "网络请求失败", cause=exc) from exc
+        if resp.status_code >= 400:
+            # 4xx/5xx：远程服务的错误说明在响应体里（如鉴权失败/模型不存在）
+            raise AppError(ERR_AI_REMOTE, _body_snippet(resp))
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise AppError(ERR_AI_REMOTE, "响应不是有效 JSON", cause=exc) from exc
+        if not isinstance(data, (dict, list)):
+            raise AppError(ERR_AI_REMOTE, "响应格式异常")
         return data
 
     def head(self, url: str) -> requests.Response:
@@ -259,6 +318,30 @@ class HttpClient(QObject):
                 return "conn_fail"
         except requests.exceptions.RequestException:
             return "conn_fail"
+
+    def probe_latency(self, url: str, timeout_s: float = 4.0) -> int | None:
+        """单站延迟测量：可达返回毫秒数（含 HEAD 被拒退化 GET），不可达 None。
+
+        仅限后台线程调用（阻塞网络 IO，禁止在 GUI 线程使用）。
+        """
+        timeout = (timeout_s, timeout_s)
+        start = time.monotonic()
+        try:
+            resp = self._session.head(url, timeout=timeout, allow_redirects=True)
+            resp.close()
+            return int((time.monotonic() - start) * 1000)
+        except requests.exceptions.ConnectionError:
+            try:
+                resp = self._session.get(
+                    url, headers={"Range": "bytes=0-0"},
+                    stream=True, timeout=timeout,
+                )
+                resp.close()
+                return int((time.monotonic() - start) * 1000)
+            except requests.exceptions.RequestException:
+                return None
+        except requests.exceptions.RequestException:
+            return None
 
 
 

@@ -83,3 +83,25 @@ def test_safe_delete_directory_tree(tmp_path: Path) -> None:
     SafeFileOps.protect_readonly(ro, True)
     SafeFileOps.safe_delete(d)
     assert not d.exists()
+
+
+# ---------- 随包资源定位 ----------
+def test_bundle_roots_point_at_real_resources_in_source_mode() -> None:
+    # 源码模式：bundle_root=src/ych，bundle_data_root=仓库根
+    from ych.common.fsutil import bundle_data_root, bundle_root
+
+    root = bundle_root()
+    assert (root / "ui" / "u6_common" / "theme.qss").is_file()
+    assert root.name == "ych"
+
+    data_root = bundle_data_root()
+    assert data_root.name != "src"
+    i18n = data_root / "i18n"
+    assert (i18n / "zh_CN.qm").is_file()
+
+
+def test_i18n_default_dir_has_locales() -> None:
+    from ych.services.s5_base.i18n_service import _default_i18n_dir
+
+    locales = sorted(p.stem for p in _default_i18n_dir().glob("*.qm"))
+    assert locales == ["en_US", "zh_CN"]

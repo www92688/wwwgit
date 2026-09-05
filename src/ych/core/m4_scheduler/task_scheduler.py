@@ -99,6 +99,7 @@ class TaskScheduler(QObject):
     task_state = Signal(str, str, str)           # task_id, state, message
     task_progress = Signal(str, float)           # task_id, 0~1
     queue_stats = Signal(int, int)               # done, total（按 batch 聚合）
+    download_row_registered = Signal(int, str, str)   # row_id, platform, title
     _retry_requested = Signal(object)            # ManagedTask（跨线程排队回主循环）
 
     def __init__(
@@ -197,6 +198,9 @@ class TaskScheduler(QObject):
                 task.db_row_id = resume_ids[0]
             elif metas:
                 task.db_row_id = self._daos.downloads.create(metas[0], keyword)
+                self.download_row_registered.emit(
+                    task.db_row_id, metas[0].plugin_id, metas[0].title,
+                )
         else:
             items_raw = data.get("items") or []
             items: list[dict[str, object]] = list(items_raw)  # type: ignore[call-overload]

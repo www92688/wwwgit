@@ -44,8 +44,9 @@ class FakeCoordinator:
         self.calls: list[dict[str, object]] = []
 
     def search_multi(self, keywords, filters, per_platform_limit=30,   # type: ignore[no-untyped-def]
-                     token=None):
-        self.calls.append({"keywords": list(keywords), "filters": filters})
+                     token=None, platform_ids=None):
+        self.calls.append({"keywords": list(keywords), "filters": filters,
+                           "platform_ids": platform_ids})
         metas = [
             VideoMeta(plugin_id="douyin", video_key="v1", title="示例",
                       duration_s=15.5, width=1080, height=1920,
@@ -108,10 +109,24 @@ def test_capture_page_search_and_download_flow(qapp, qtbot) -> None:
     result_set = SearchResultSet(keyword="地毯清洗", items=metas)
     page.on_search_finished(result_set)
     assert page.result_list.list.count() == 1
+
     page._on_download(page.result_list.checked_metas(), "地毯清洗")
     assert len(dm.enqueued) == 1
     assert dm.enqueued[0][2] == page.limit_spin.value()
     assert dm.enqueued[0][1] == "地毯清洗"
+
+
+def test_capture_page_with_real_config_service(qapp, qtbot) -> None:
+    # 回归：真实 ConfigService 缺 download_limit 键时启动即崩（CFG001）
+    from ych.services.s5_base.config_service import ConfigService
+    from ych.ui.u1_capture.capture_page import CapturePage
+
+    page = CapturePage(
+        coordinator=FakeCoordinator(), download_manager=FakeDownloadManager(),
+        history=FakeHistory(), config=ConfigService(),
+    )
+    qtbot.addWidget(page)
+    assert page.limit_spin.value() == 20   # 取自 _DEFAULTS 的 download_limit
 
 
 def test_capture_queue_view_renders_updates(qapp, qtbot) -> None:
@@ -119,6 +134,11 @@ def test_capture_queue_view_renders_updates(qapp, qtbot) -> None:
 
     view = DownloadQueueView()
     qtbot.addWidget(view)
+    # 入队预登记：平台/标题立即可见，状态为等待中（修复"-"列）
+    view.add_row_info(7, "pixabay", "sunset river")
+    assert view.table.item(0, 0).text() == "pixabay"
+    assert view.table.item(0, 1).text() == "sunset river"
+    assert view.table.item(0, 2).text() == "等待中"
     view.on_item_updated(7, "running", 0.4, "")
     view.on_item_updated(7, "success", 1.0, "")
     assert view.table.rowCount() == 1
@@ -186,6 +206,85 @@ def _buttons(widget):   # type: ignore[no-untyped-def]
     from PySide6.QtWidgets import QPushButton
 
     return widget.findChildren(QPushButton)
+
+
+def test_capture_open_files_button(qapp, qtbot, tmp_path, monkeypatch) -> None:
+    """「查看文件」：正常打开工作目录；未设置目录时提示而非报错。"""
+    from PySide6.QtGui import QDesktopServices
+    from PySide6.QtWidgets import QMessageBox
+    from ych.ui.u1_capture.capture_page import CapturePage
+
+    opened: list[object] = []
+    monkeypatch.setattr(
+        QDesktopServices, "openUrl",
+        staticmethod(lambda url: opened.append(url)),
+    )
+    boxes: list[tuple] = []
+    monkeypatch.setattr(
+        QMessageBox, "information",
+        staticmethod(lambda *a, **k: boxes.append(a)),
+    )
+
+    page = CapturePage(open_files=lambda: tmp_path)
+    qtbot.addWidget(page)
+    page._on_open_files()
+    assert len(opened) == 1
+    from pathlib import Path
+
+    assert Path(opened[0].toLocalFile()) == tmp_path   # type: ignore[attr-defined]
+    assert boxes == []
+
+    def _unset() -> object:
+        raise RuntimeError("尚未设置工作目录")
+
+    page2 = CapturePage(open_files=_unset)
+    qtbot.addWidget(page2)
+    page2._on_open_files()
+    assert len(boxes) == 1 and len(opened) == 1   # 未开目录，仅提示
+
+
+def test_wire_asset_refresh_feeds_pages(qapp, qtbot) -> None:
+    """下载成功信号触发后，预处理/去重工作台应同步到最新素材。"""
+    from PySide6.QtCore import QObject, Signal
+    from types import SimpleNamespace
+
+    from ych.app import wire_asset_refresh
+    from ych.services.s3_db.daos import AssetRow
+
+    class _Sigs(QObject):
+        item_updated = Signal(int, str, float, str)
+        workdir_changed = Signal(object)
+
+    sigs = _Sigs()
+    rows = [
+        AssetRow(id=1, path=r"C:\wd\清洗类\地毯\2026-08-25\a.mp4", kind="raw",
+                 size_bytes=1, duration_s=1.0, width=64, height=48, mtime=0.0,
+                 category="清洗类", keyword="地毯", date_str="2026-08-25",
+                 indexed_at="")
+    ]
+    daos = SimpleNamespace(assets=SimpleNamespace(list_by_kind=lambda kind: rows))
+    ctx = SimpleNamespace(
+        daos=lambda: daos,
+        workdirs=lambda: SimpleNamespace(workdir_changed=sigs.workdir_changed),
+    )
+    pre_calls: list[list[AssetRow]] = []
+    dedup_calls: list[list[str]] = []
+    preprocess = SimpleNamespace(set_assets=pre_calls.append)
+    dedup = SimpleNamespace(set_assets=dedup_calls.append)
+    dm = SimpleNamespace(item_updated=sigs.item_updated)
+
+    wire_asset_refresh(ctx, preprocess, dedup, dm)
+    assert len(pre_calls) == 1 and pre_calls[0] == rows       # 启动加载一次
+    assert dedup_calls[0] == [rows[0].path]
+
+    sigs.item_updated.emit(1, "running", 0.5, "")             # 进行中不刷新
+    assert len(pre_calls) == 1
+
+    sigs.item_updated.emit(1, "success", 1.0, r"C:\wd\x.mp4")  # 成功即刷新
+    assert len(pre_calls) == 2 and dedup_calls[1] == [rows[0].path]
+
+    sigs.workdir_changed.emit(rows[0].path)                   # 换目录刷新
+    assert len(pre_calls) == 3
 
 
 def test_failure_page_reprocess(qapp, qtbot, tmp_path) -> None:

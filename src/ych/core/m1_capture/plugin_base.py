@@ -54,6 +54,9 @@ class PlatformPlugin(ABC):
     region: Region = "cn"
     requires_api_key: bool = False
     enabled_by_default: bool = False
+    # 国外总开关（foreign_platforms_enabled）是否约束本插件：
+    # 免费素材站国内可直连不受约束；TikTok/YouTube 等受约束
+    gated_by_foreign_master: bool = True
 
     # 限频参数：host 与最小请求间隔（秒）；空 host 表示不限频
     RATE_HOST: str = ""

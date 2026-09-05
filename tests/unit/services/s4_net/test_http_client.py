@@ -187,3 +187,26 @@ def test_429_single_request_no_transport_retry(client) -> None:
             client.get_json("https://api.x.com/feed")
     # max_retry=2：若 429 误入 status_forcelist 会打出 3 次请求；修复后仅 1 次
     assert len(calls) == 1
+
+
+# ---------- probe_latency ----------
+def test_probe_latency_returns_ms(client) -> None:
+    with responses.RequestsMock() as rsps:
+        rsps.add(responses.HEAD, "https://x.com", status=200)
+        ms = client.probe_latency("https://x.com")
+    assert isinstance(ms, int) and ms >= 0
+
+
+def test_probe_latency_head_rejected_falls_back_to_get(client) -> None:
+    with responses.RequestsMock() as rsps:
+        rsps.add(responses.HEAD, "https://x.com", body=requests.ConnectionError())
+        rsps.add(responses.GET, "https://x.com", status=206)
+        ms = client.probe_latency("https://x.com")
+    assert isinstance(ms, int)
+
+
+def test_probe_latency_unreachable_returns_none(client) -> None:
+    with responses.RequestsMock() as rsps:
+        rsps.add(responses.HEAD, "https://x.com", body=requests.ConnectTimeout())
+        rsps.add(responses.GET, "https://x.com", body=requests.ConnectTimeout())
+        assert client.probe_latency("https://x.com") is None

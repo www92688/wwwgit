@@ -6,10 +6,14 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QTranslator, Signal
 
+from ych.common.fsutil import bundle_data_root
+
 logger = logging.getLogger("ych.s5")
 
-# 仓库根 i18n 目录（src/ych/services/s5_base/ → 上溯 4 级）
-_REPO_I18N_DIR = Path(__file__).resolve().parents[4] / "i18n"
+
+def _default_i18n_dir() -> Path:
+    """源码运行 → 仓库根 i18n/；打包运行 → _internal/i18n。"""
+    return bundle_data_root() / "i18n"
 
 
 class I18nService(QObject):
@@ -19,7 +23,7 @@ class I18nService(QObject):
 
     def __init__(self, i18n_dir: Path | None = None) -> None:
         super().__init__()
-        self._dir = i18n_dir if i18n_dir is not None else _REPO_I18N_DIR
+        self._dir = i18n_dir if i18n_dir is not None else _default_i18n_dir()
         self._locale = "zh_CN"
         self._translator: QTranslator | None = None
 

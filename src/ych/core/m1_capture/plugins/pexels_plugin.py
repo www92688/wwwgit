@@ -26,6 +26,8 @@ class PexelsPlugin(PlatformPlugin):
     region = "global"
     requires_api_key = True
     enabled_by_default = True
+    # 国内可直连的免费素材站：不受「国外平台」总开关约束
+    gated_by_foreign_master = False
 
     RATE_HOST = "api.pexels.com"
     RATE_INTERVAL_S = _RATE_INTERVAL_S

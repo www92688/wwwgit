@@ -516,6 +516,18 @@ class AssetIndexDao:
         )
         return int(rows[0][0])
 
+    def list_by_kind(self, kind: str) -> list[AssetRow]:
+        """按 kind（raw/cleaned/deduped）取素材行，供工作台素材列表。"""
+        rows = self._db.query(
+            "SELECT * FROM asset_index WHERE kind=? ORDER BY path", (kind,)
+        )
+        out: list[AssetRow] = []
+        for r in rows:
+            item = _row_to_dataclass(r, AssetRow)
+            assert isinstance(item, AssetRow)
+            out.append(item)
+        return out
+
     def all_paths(self) -> set[str]:
         rows = self._db.query("SELECT path FROM asset_index")
         return {r[0] for r in rows}

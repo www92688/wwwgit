@@ -61,6 +61,8 @@ class DownloadQueueView(QWidget):
         row = self._ensure_row(row_id)
         self.table.setItem(row, 0, QTableWidgetItem(platform))
         self.table.setItem(row, 1, QTableWidgetItem(title))
+        if self.table.item(row, 2) is None:
+            self.table.setItem(row, 2, QTableWidgetItem("等待中"))
 
     def _ensure_row(self, row_id: int) -> int:
         if row_id in self._rows:

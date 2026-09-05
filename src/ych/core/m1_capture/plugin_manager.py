@@ -89,7 +89,11 @@ class PluginManager:
         return out
 
     def enabled(self, region: Region) -> list[PlatformPlugin]:
-        """enabled_plugins 覆盖 + foreign_platforms_enabled 总开关（仅约束国外区）。"""
+        """enabled_plugins 覆盖 + foreign_platforms_enabled 总开关。
+
+        总开关仅约束 gated_by_foreign_master=True 的国外插件
+        （TikTok/YouTube 等）；免费素材站国内可直连，不受约束。
+        """
         master_foreign = bool(self._config.get("foreign_platforms_enabled"))
         overrides_raw = self._config.get("enabled_plugins")
         overrides: dict[str, bool] = {}
@@ -99,7 +103,11 @@ class PluginManager:
         for p in self._plugins:
             if p.region != region:
                 continue
-            if p.region == "global" and not master_foreign:
+            if (
+                p.region == "global"
+                and p.gated_by_foreign_master
+                and not master_foreign
+            ):
                 continue
             if not overrides.get(p.id, p.enabled_by_default):
                 continue

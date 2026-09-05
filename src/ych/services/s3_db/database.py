@@ -47,6 +47,10 @@ class Database:
         conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
         if conn is None:
             try:
+                if self._path != ":memory:":
+                    # sqlite3.connect 不创建父目录；首启 %LOCALAPPDATA%/YuChongGou
+                    # 不存在会报 "unable to open database file"（DB001）
+                    Path(self._path).parent.mkdir(parents=True, exist_ok=True)
                 conn = sqlite3.connect(self._path, check_same_thread=False)
                 conn.row_factory = sqlite3.Row
                 if self._path != ":memory:":

@@ -50,12 +50,17 @@ class SearchCoordinator(QObject):
         per_platform_limit: int = 30,
         token: CancellationToken | None = None,
         region: Region | None = None,
+        platform_ids: list[str] | None = None,
     ) -> None:
-        """异步入口：立即返回，结果经 search_finished/search_failed 通知。"""
+        """异步入口：立即返回，结果经 search_finished/search_failed 通知。
+
+        platform_ids 非空时只搜索勾选的平台（None=全部启用平台）。
+        """
         regions: list[Region] = [region] if region is not None else ["cn", "global"]
         worker = threading.Thread(
             target=self._run,
-            args=(list(keywords), filters, per_platform_limit, token, regions),
+            args=(list(keywords), filters, per_platform_limit, token, regions,
+                  platform_ids),
             daemon=True,
             name="ych-search-coordinator",
         )
@@ -70,13 +75,16 @@ class SearchCoordinator(QObject):
         limit: int,
         token: CancellationToken | None,
         regions: list[Region],
+        platform_ids: list[str] | None = None,
     ) -> None:
         for kw in keywords:
             if token is not None and token.cancelled:
                 logger.info("搜索在关键词「%s」前被取消", kw)
                 return
             try:
-                result = self._search_once(kw, filters, limit, token, regions)
+                result = self._search_once(
+                    kw, filters, limit, token, regions, platform_ids,
+                )
             except Exception as exc:  # 整关键词级兜底（正常不达）
                 logger.exception("搜索关键词「%s」失败", kw)
                 self.search_failed.emit(kw, str(exc))
@@ -90,12 +98,14 @@ class SearchCoordinator(QObject):
         limit: int,
         token: CancellationToken | None,
         regions: list[Region],
+        platform_ids: list[str] | None = None,
     ) -> SearchResultSet:
         items: list[VideoMeta] = []
         unavailable: list[tuple[str, str]] = []
         used_ids: list[str] = []
         plugins = [
             p for r in regions for p in self._manager.enabled(r)
+            if platform_ids is None or p.id in platform_ids
         ]
         for p in plugins:
             ok, reason = self._manager.availability(p)

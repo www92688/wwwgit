@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from ych.services.s1_media.ffmpeg_runner import FFmpegRunner
     from ych.services.s1_media.frame_extractor import FrameExtractor
     from ych.services.s1_media.probe_service import ProbeService
+    from ych.services.s2_ai.ai_gateway import AiGateway
     from ych.services.s2_ai.provider import InferenceProvider
     from ych.services.s3_db.daos import DaosBundle
     from ych.services.s3_db.database import Database
@@ -107,6 +108,14 @@ class AppContext:
 
             self._cache["http"] = HttpClient(self.config())
         return cast("HttpClient", self._cache_cast("http"))
+
+    # ---- S2 远程 AI（自定义服务）----
+    def ai_gateway(self) -> AiGateway:
+        if "ai_gateway" not in self._cache:
+            from ych.services.s2_ai.ai_gateway import AiGateway
+
+            self._cache["ai_gateway"] = AiGateway(self.config(), self.http())
+        return cast("AiGateway", self._cache_cast("ai_gateway"))
 
     def rate_limiter(self) -> RateLimiter:
         if "limiter" not in self._cache:

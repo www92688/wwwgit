@@ -32,6 +32,7 @@ ERR_AI_MODEL_MISSING = "AI001"    # 模型文件缺失
 ERR_AI_MODEL_LOAD_FAILED = "AI002"  # 模型加载失败
 ERR_AI_INVALID_INPUT = "AI003"    # 推理输入非法
 ERR_AI_INFER_TIMEOUT = "AI004"    # 推理超时
+ERR_AI_REMOTE = "AI010"          # 远程 AI 服务调用失败（HTTP/鉴权/响应格式）
 
 # ---- DB 域（S3）----
 ERR_DB_OPEN_FAILED = "DB001"      # 打开失败

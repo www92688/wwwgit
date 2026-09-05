@@ -165,18 +165,18 @@ def test_discover_finds_all_eight(pm_env: HttpClient, memory_config: ConfigServi
 def test_enabled_switch_and_overrides(pm_env: HttpClient, memory_config: ConfigService) -> None:
     manager = PluginManager(pm_env, memory_config)
     manager.discover()
-    # 国内默认全开；国外总开关默认关
+    # 国内默认全开；素材站不受总开关约束，TikTok/YouTube 受约束
     assert {p.id for p in manager.enabled("cn")} == {
         "douyin", "kuaishou", "bilibili", "xiaohongshu"}
-    assert manager.enabled("global") == []
+    assert {p.id for p in manager.enabled("global")} == {"pexels", "pixabay"}
     memory_config.set("foreign_platforms_enabled", True)
     assert {p.id for p in manager.enabled("global")} == {"pexels", "pixabay"}
     # 插件级覆盖：关掉 pexels；总开关开着时 tiktok 可被强开
     memory_config.set("enabled_plugins", {"pexels": False, "tiktok": True})
     assert {p.id for p in manager.enabled("global")} == {"pixabay", "tiktok"}
-    # 总开关关闭后即使插件级强开也不越权
+    # 总开关关闭后素材站仍在，受门控插件即使强开也不越权
     memory_config.set("foreign_platforms_enabled", False)
-    assert manager.enabled("global") == []
+    assert {p.id for p in manager.enabled("global")} == {"pixabay"}
 
 
 def test_availability_ttl_cache(pm_env: HttpClient, tmp_path: Path) -> None:

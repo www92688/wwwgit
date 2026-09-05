@@ -207,6 +207,17 @@ def test_asset_index_upsert_and_queries(daos, tmp_path) -> None:
     assert len(daos.assets.find_by_dir(base)) == 1
 
 
+def test_asset_list_by_kind_filters(daos) -> None:
+    daos.assets.upsert_many([
+        _asset("D:/w/raw1.mp4", kind="raw"),
+        _asset("D:/w/cleaned1.mp4", kind="cleaned"),
+        _asset("D:/w/raw2.mp4", kind="raw"),
+    ])
+    paths = [r.path for r in daos.assets.list_by_kind("raw")]
+    assert paths == ["D:/w/raw1.mp4", "D:/w/raw2.mp4"]
+    assert daos.assets.list_by_kind("deduped") == []
+
+
 def test_category_map_rename_merge(daos) -> None:
     daos.categories.map_keyword("地毯清洗", "清洗类")
     daos.categories.map_keyword("水管疏通", "管道类")
@@ -273,6 +284,17 @@ def test_default_db_path_under_appdata(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setenv("APPDATA", str(tmp_path))
     assert default_db_path() == tmp_path / "YuChongGou" / "app.db"
+
+
+def test_connection_creates_missing_parent_dir(tmp_path) -> None:
+    # 首次启动 %LOCALAPPDATA%/YuChongGou 不存在：建库前须自动创建父目录
+    database = Database(tmp_path / "no_such_dir" / "app.db")
+    database.write(
+        lambda conn: conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES('k','v')"
+        )
+    )
+    assert database.query("SELECT COUNT(*) FROM app_settings")[0][0] == 1
 
 
 # sqlite3 直查辅助（供断言用）

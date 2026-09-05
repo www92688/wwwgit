@@ -46,11 +46,23 @@ if i18n_dir.exists():
     for qm in i18n_dir.glob("*.qm"):
         datas.append((str(qm), "i18n"))
 
+# 主题样式（app.py 经 fsutil.bundle_root() 定位到 _internal/ych/ui/u6_common）
+qss = ROOT / "src" / "ych" / "ui" / "u6_common" / "theme.qss"
+if qss.exists():
+    datas.append((str(qss), os.path.join("ych", "ui", "u6_common")))
+else:
+    print("[build_exe.spec] WARN 缺少 theme.qss（打包版将无主题样式）")
+
 templates = ROOT / "templates"
 if templates.exists():
     for f in templates.glob("*"):
         if f.is_file():
             datas.append((str(f), "templates"))
+
+# 应用图标（exe 内嵌 + 打包后 setWindowIcon 经 bundle_data_root 定位）
+app_ico = ROOT / "resources" / "app.ico"
+if app_ico.exists():
+    datas.append((str(app_ico), "resources"))
 
 hiddenimports = [
     "PySide6.QtMultimedia",

@@ -7,7 +7,7 @@ from typing import ClassVar, Protocol, TypeVar, cast
 
 from PySide6.QtCore import QObject, Signal
 
-from ych.common.errors import ERR_CFG_KEY_MISSING, ERR_CFG_VALUE_DESERIALIZE, AppError
+from ych.common.errors import ERR_CFG_KEY_MISSING, AppError
 
 logger = logging.getLogger("ych.s5")
 
@@ -42,6 +42,12 @@ class ConfigService(QObject):
         "process_concurrency": 2,
         "max_retry": 2,
         "retry_backoff_seconds": [2, 8],
+        # 采集
+        "download_limit": 20,
+        # 自定义 AI 服务（OpenAI 兼容接口）：{id: {name, base_url, model, has_key}}
+        "ai_services": {},
+        # 默认 AI 服务 id；空 = 未配置（关键词扩展等 AI 功能引导去设置页）
+        "ai_default_service": "",
         # 自动对比候选
         "compare_candidates_per_platform": 20,
         "candidate_cache_ttl_days": 7,
@@ -103,12 +109,9 @@ class ConfigService(QObject):
     def database_ready(self, dao: _SettingsDaoLike) -> None:
         """注入 S3 DAO：加载持久化值 → 回填内存期写入。"""
         self._dao = dao
-        try:
-            persisted = dao.all()
-        except Exception as exc:  # 反序列化失败逐键降级为默认值（CFG002）
-            raise AppError(
-                ERR_CFG_VALUE_DESERIALIZE, "配置数据反序列化失败", cause=exc
-            ) from exc
+        # dao.all() 是纯 DB 读取：失败时让 DB 错误码原样上抛，
+        # 不包装成 CFG002（反序列化失败由下方逐键降级处理）
+        persisted = dao.all()
         for key, raw in persisted.items():
             try:
                 self._values[key] = json.loads(raw)
@@ -135,5 +138,14 @@ class ConfigService(QObject):
         marker = f"{key}_api_key"
         if marker in self._DEFAULTS:
             self.set(marker, True)
+
+    def secret_delete(self, key: str) -> None:
+        """从系统凭据管理器删除密钥；不存在时忽略。"""
+        import contextlib
+
+        import keyring
+
+        with contextlib.suppress(keyring.errors.PasswordDeleteError):
+            keyring.delete_password(_SECRET_SERVICE, key)
 
 

@@ -11,6 +11,33 @@ from pathlib import Path
 _LONG_PATH_THRESHOLD = 240
 
 
+def bundle_root() -> Path:
+    """ych 包目录随包资源根。
+
+    源码运行 → src/ych；PyInstaller 打包后 → _MEIPASS/ych
+    （即 _internal/ych，与 build_exe.spec 的 datas 目标一致）。
+    """
+    import sys
+
+    meipass = str(getattr(sys, "_MEIPASS", "") or "")
+    if getattr(sys, "frozen", False) and meipass:
+        return Path(meipass) / "ych"
+    return Path(__file__).resolve().parents[1]
+
+
+def bundle_data_root() -> Path:
+    """部署根：打包 → _MEIPASS（_internal/）；源码 → 仓库根。
+
+    用于 i18n 等部署在部署根一级的数据目录。
+    """
+    import sys
+
+    meipass = str(getattr(sys, "_MEIPASS", "") or "")
+    if getattr(sys, "frozen", False) and meipass:
+        return Path(meipass)
+    return Path(__file__).resolve().parents[3]
+
+
 def long_path(path: Path) -> Path:
     """超过 240 字符的路径加 \\\\?\\ 前缀，否则原样返回。"""
     s = str(path)
