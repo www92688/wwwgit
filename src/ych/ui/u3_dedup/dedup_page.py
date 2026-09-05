@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from ych.core.m3_dedup.techniques.registry import TechniqueRegistry
 from ych.ui.u3_dedup.report_view import ReportView
 from ych.ui.u3_dedup.scheme_editor import SchemeEditor
+from ych.ui.u6_common.toast import Toast
 
 
 class _SchemeManagerLike(Protocol):
@@ -172,11 +173,15 @@ class DedupPage(QWidget):
         srcs = self.checked_paths()
         if srcs:
             self.analyze_requested.emit(srcs)
+        else:
+            Toast.show_message(self, "请先在左侧勾选素材，再分析重复度")
 
     def _emit_dedup(self) -> None:
         srcs = self.checked_paths()
         if srcs:
             self.dedup_requested.emit(srcs, self.current_params())
+        else:
+            Toast.show_message(self, "请先在左侧勾选素材，再开始去重")
 
 
 def make_registry() -> TechniqueRegistry:

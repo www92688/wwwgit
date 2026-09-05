@@ -16,7 +16,43 @@ class AssetTree(QTreeWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setHeaderHidden(True)
-        self.itemChanged.connect(lambda _i: self.selection_changed.emit())
+        self._cascading = False           # 程序化改勾选态期间抑制递归
+        self.itemChanged.connect(self._on_item_changed)
+
+    # ---- 勾选级联：父→子全选/全不选，子→父三态汇总 ----
+    def _on_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
+        if self._cascading or column != 0:
+            return
+        self._cascading = True
+        try:
+            self._apply_to_children(item, item.checkState(0))
+            self._sync_ancestors(item)
+        finally:
+            self._cascading = False
+        self.selection_changed.emit()
+
+    def _apply_to_children(
+        self, item: QTreeWidgetItem, state: Qt.CheckState,
+    ) -> None:
+        for i in range(item.childCount()):
+            child = item.child(i)
+            child.setCheckState(0, state)
+            self._apply_to_children(child, state)
+
+    def _sync_ancestors(self, item: QTreeWidgetItem) -> None:
+        parent = item.parent()
+        while parent is not None:
+            states = [
+                parent.child(i).checkState(0)
+                for i in range(parent.childCount())
+            ]
+            if all(s == Qt.CheckState.Checked for s in states):
+                parent.setCheckState(0, Qt.CheckState.Checked)
+            elif all(s == Qt.CheckState.Unchecked for s in states):
+                parent.setCheckState(0, Qt.CheckState.Unchecked)
+            else:
+                parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
+            parent = parent.parent()
 
     # ---- 数据 ----
     def set_assets(self, rows: list[Any]) -> None:

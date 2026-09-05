@@ -100,6 +100,8 @@ class TaskScheduler(QObject):
     task_progress = Signal(str, float)           # task_id, 0~1
     queue_stats = Signal(int, int)               # done, total（按 batch 聚合）
     download_row_registered = Signal(int, str, str)   # row_id, platform, title
+    # task_id, type, state, message, summary（终态反馈；UI 按类型路由）
+    task_done = Signal(str, str, str, str, object)
     _retry_requested = Signal(object)            # ManagedTask（跨线程排队回主循环）
 
     def __init__(
@@ -267,6 +269,10 @@ class TaskScheduler(QObject):
                 )
         task.state = state
         self.task_state.emit(task.task_id, state, message)
+        self.task_done.emit(
+            task.task_id, task.payload.type, state, message,
+            dict(summary or {}),
+        )
 
     def _on_worker_done(self, task: ManagedTask) -> None:
         batch_id = task.payload.data.get("batch_id")

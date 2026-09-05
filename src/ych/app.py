@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any, cast
+from pathlib import Path
+from typing import Any, Callable, cast
 
 
 def main() -> int:
@@ -83,11 +84,16 @@ def main() -> int:
 
     capture.foreign_switch_requested.connect(_check_foreign_net_async)
 
-    preprocess = PreprocessPage(scheduler=cast(Any, ctx.scheduler()))
+    preprocess = PreprocessPage(
+        scheduler=cast(Any, ctx.scheduler()),
+        frame_loader=lambda src: _load_preview_frame(ctx, src),
+    )
     dedup = DedupPage(
         registry=ctx.technique_registry(), scheme_manager=ctx.scheme_manager(),
     )
-    dedup.analyze_requested.connect(lambda srcs: _submit_compare(ctx, srcs))
+    compare_srcs: dict[str, list[str]] = {}
+    dedup.analyze_requested.connect(
+        lambda srcs: _submit_compare(ctx, srcs, compare_srcs))
     dedup.dedup_requested.connect(
         lambda srcs, params: _submit_dedup(ctx, srcs, params))
     failures = FailurePage(ctx.daos().fails, ctx.scheduler())
@@ -104,6 +110,13 @@ def main() -> int:
     # 预处理/去重工作台素材：启动加载一次，之后下载成功即自动刷新
     wire_asset_refresh(ctx, preprocess, dedup, dm)
 
+    # 处理类任务反馈：完成/失败 Toast，分析报告回填去重页
+    toast = wire_task_feedback(ctx, ctx.scheduler(), dedup, window, compare_srcs)
+    preprocess.submitted.connect(lambda n: toast(f"已提交 {n} 条预处理任务"))
+    dedup.analyze_requested.connect(lambda _srcs: toast("已提交重复度分析"))
+    dedup.dedup_requested.connect(
+        lambda srcs, _params: toast(f"已提交 {len(srcs)} 条去重任务"))
+
     window.show()
     if not window.ensure_workdir():
         logger.warning("未设置工作目录，部分功能不可用")
@@ -119,6 +132,94 @@ def _set_window_icon(app: Any) -> None:
     ico = bundle_data_root() / "resources" / "app.ico"
     if ico.exists():
         app.setWindowIcon(QIcon(str(ico)))
+
+
+def _load_preview_frame(ctx: Any, src: str) -> str:
+    """取素材中段单帧存临时 PNG 并返回路径（后台线程执行）。
+
+    ts 取 min(1s, 时长/2)：避免短视频 -ss 越过末尾抽不到帧。
+    """
+    import tempfile
+
+    import numpy as np
+    from PySide6.QtGui import QImage
+
+    path = Path(src)
+    info = ctx.prober().probe(path)
+    ts = min(1.0, max(0.0, (info.duration_s or 0.0) / 2.0))
+    frame = ctx.frame_extractor().single(path, ts)
+    img = np.ascontiguousarray(frame.img)
+    h, w = img.shape[:2]
+    qimg = QImage(img.data, w, h, w * 3, QImage.Format.Format_BGR888)
+    out = (Path(tempfile.gettempdir()) / "YuChongGou"
+           / f"preview_{abs(hash(src)) % 10 ** 8}.png")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if not qimg.save(str(out)):
+        raise RuntimeError("预览帧落盘失败")
+    return str(out)
+
+
+def wire_task_feedback(
+    ctx: Any, sched: Any, dedup: Any, parent: Any,
+    compare_srcs: dict[str, list[str]],
+) -> Callable[[str, bool], None]:
+    """处理类任务（preprocess/dedup/compare）终态反馈：Toast + 报告回填。
+
+    task_done 由工作线程发出，经 QObject 桥接收者排队回主线程再弹 Toast。
+    返回 toast 函数供提交时复用。
+    """
+    from PySide6.QtCore import QObject
+
+    from ych.ui.u6_common.toast import Toast
+
+    def toast(msg: str, error: bool = False, timeout_ms: int = 4000) -> None:
+        Toast.show_message(parent, msg, error=error, log_dir=ctx.log_dir(),
+                           timeout_ms=timeout_ms)
+
+    labels = {"preprocess": "预处理", "dedup": "去重", "compare": "重复度分析"}
+
+    class _Bridge(QObject):
+        def on_done(
+            self, task_id: str, ttype: str, state: str,
+            message: str, summary: Any,
+        ) -> None:
+            if ttype == "download":
+                return                  # 下载队列视图已逐条反馈
+            label = labels.get(ttype, ttype)
+            if state == "success":
+                failed = int(summary.get("failed") or 0)
+                skipped = int(summary.get("skipped") or 0)
+                extra = "".join(
+                    f"，{word} {count} 条"
+                    for word, count in (("失败", failed), ("跳过", skipped))
+                    if count
+                )
+                if ttype == "preprocess":
+                    toast(f"预处理完成：成功 {len(summary.get('outputs') or [])} 条"
+                          f"{extra}；输出与原文件同目录（_cleaned 后缀）")
+                elif ttype == "dedup":
+                    before = summary.get("before_pct")
+                    after = summary.get("after_pct")
+                    tail = (f"；重复度 {before}% → {after}%"
+                            if before is not None and after is not None else "")
+                    toast(f"去重完成：成功 {len(summary.get('outputs') or [])} 条"
+                          f"{extra}{tail}；输出在 已去重/ 目录")
+                elif ttype == "compare":
+                    srcs = compare_srcs.get(task_id) or []
+                    if srcs:
+                        report = ctx.daos().reports.latest_for(Path(srcs[0]))
+                        if report is not None:
+                            dedup.render_report(report)
+                    toast(f"重复度分析完成{extra}，已按结果标注推荐档位")
+            elif state == "failed":
+                toast(f"{label}失败：{message}", error=True, timeout_ms=8000)
+            elif state == "canceled":
+                toast(f"{label}任务已取消")
+
+    bridge = _Bridge()
+    bridge.setParent(parent)    # 挂到主窗口：防 GC 断连 + 线程归属主线程
+    sched.task_done.connect(bridge.on_done)   # 接收者为 QObject → 队列到主线程
+    return toast
 
 
 def wire_asset_refresh(
@@ -144,11 +245,14 @@ def wire_asset_refresh(
     ctx.workdirs().workdir_changed.connect(lambda _path: refresh())
 
 
-def _submit_compare(ctx, srcs: list[str]) -> None:   # type: ignore[no-untyped-def]
+def _submit_compare(
+    ctx: Any, srcs: list[str], compare_srcs: dict[str, list[str]],
+) -> None:
     from ych.common.schemas import TaskPayload
 
-    ctx.scheduler().submit(TaskPayload(type="compare",
-                                       data={"srcs": srcs, "mode": "both"}))
+    task_id = ctx.scheduler().submit(TaskPayload(
+        type="compare", data={"srcs": srcs, "mode": "both"}))
+    compare_srcs[task_id] = srcs
 
 
 def _submit_dedup(

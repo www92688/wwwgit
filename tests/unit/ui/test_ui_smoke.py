@@ -322,3 +322,171 @@ def test_i18n_switch_loads_qm(qapp, qtbot) -> None:
     service.switch_locale("en_US")
     assert service.current_locale() == "en_US"
     assert received[-1] == "en_US"
+
+
+def test_asset_tree_check_cascades(qapp, qtbot) -> None:
+    """父节点勾选级联到叶子；叶子取消后父节点变三态。"""
+    from PySide6.QtCore import Qt
+
+    from ych.services.s3_db.daos import AssetRow
+    from ych.ui.u2_preprocess.asset_tree import AssetTree
+
+    def _row(path: str, cat: str, kw: str) -> AssetRow:
+        return AssetRow(id=0, path=path, kind="raw", size_bytes=1,
+                        duration_s=1.0, width=64, height=48, mtime=0.0,
+                        category=cat, keyword=kw, date_str="2026-09-05",
+                        indexed_at="")
+
+    rows = [
+        _row(r"C:\wd\砍木头视频\砍木头视频\2026-09-05\a.mp4",
+             "砍木头视频", "砍木头视频"),
+        _row(r"C:\wd\砍木头视频\砍木头视频\2026-09-05\b.mp4",
+             "砍木头视频", "砍木头视频"),
+        _row(r"C:\wd\木头\木头\2026-09-05\c.mp4", "木头", "木头"),
+    ]
+    tree = AssetTree()
+    qtbot.addWidget(tree)
+    tree.set_assets(rows)
+    assert tree.topLevelItemCount() == 2
+
+    top = tree.topLevelItem(0)
+    top.setCheckState(0, Qt.CheckState.Checked)     # 勾大类 → 叶子全选
+    assert top.child(0).checkState(0) == Qt.CheckState.Checked
+    assert len(tree.checked_files()) == 2
+
+    leaf = top.child(0).child(1)
+    leaf.setCheckState(0, Qt.CheckState.Unchecked)  # 取消一个叶子 → 父三态
+    assert top.child(0).checkState(0) == Qt.CheckState.PartiallyChecked
+    assert top.checkState(0) == Qt.CheckState.PartiallyChecked
+    assert tree.checked_files() == [rows[0].path]
+
+    leaf.setCheckState(0, Qt.CheckState.Checked)    # 恢复 → 父全勾
+    assert top.checkState(0) == Qt.CheckState.Checked
+    assert len(tree.checked_files()) == 2
+
+
+def test_preprocess_preview_and_empty_selection_toast(
+    qapp, qtbot, tmp_path, monkeypatch,
+) -> None:
+    """预览框选帧可用；空选时开始/预览给出提示而非无响应。"""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QImage
+
+    from ych.services.s3_db.daos import AssetRow
+    from ych.ui.u2_preprocess.preprocess_page import PreprocessPage
+    from ych.ui.u6_common.toast import Toast
+
+    captured: list[str] = []
+    monkeypatch.setattr(
+        Toast, "show_message",
+        staticmethod(lambda parent, msg, **k: captured.append(msg)),
+    )
+    png = tmp_path / "frame.png"
+    img = QImage(4, 4, QImage.Format.Format_ARGB32)
+    img.fill(0)
+    assert img.save(str(png))
+
+    sched = FakeScheduler()
+    page = PreprocessPage(scheduler=sched, frame_loader=lambda src: str(png))
+    qtbot.addWidget(page)
+    page.set_assets([AssetRow(
+        id=1, path=r"C:\wd\砍木头视频\a.mp4", kind="raw", size_bytes=1,
+        duration_s=15.0, width=1280, height=720, mtime=0.0,
+        category="砍木头视频", keyword="砍木头视频",
+        date_str="2026-09-05", indexed_at="",
+    )])
+
+    page._on_start()                                # 空选：Toast 提示
+    assert "勾选" in captured[-1]
+    assert sched.submitted == []
+    page._on_preview()
+    assert "勾选" in captured[-1]
+
+    page.asset_tree.topLevelItem(0).setCheckState(0, Qt.CheckState.Checked)
+    shown: list[str] = []
+    page.load_frame_image = shown.append   # type: ignore[method-assign]
+    page._on_preview()
+    qtbot.waitUntil(lambda: bool(shown), timeout=5000)
+    assert shown == [str(png)]
+
+    page._on_start()                                # 有勾选：正常提交
+    assert len(sched.submitted) == 1
+
+
+def test_dedup_empty_selection_toast(qapp, qtbot, monkeypatch) -> None:
+    from ych.core.m3_dedup.techniques.registry import make_default_registry
+    from ych.ui.u3_dedup.dedup_page import DedupPage
+    from ych.ui.u6_common.toast import Toast
+
+    captured: list[str] = []
+    monkeypatch.setattr(
+        Toast, "show_message",
+        staticmethod(lambda parent, msg, **k: captured.append(msg)),
+    )
+    got: dict[str, object] = {}
+    page = DedupPage(registry=make_default_registry(), scheme_manager=None)
+    qtbot.addWidget(page)
+    page.analyze_requested.connect(
+        lambda srcs: got.update(analyze=list(srcs)))
+    page.dedup_requested.connect(
+        lambda srcs, params: got.update(dedup=(list(srcs), params)))
+
+    page._emit_analyze()
+    page._emit_dedup()
+    assert len(captured) == 2 and "勾选" in captured[0]
+    assert got == {}
+
+
+def test_wire_task_feedback(qapp, qtbot, tmp_path, monkeypatch) -> None:
+    """任务终态反馈：下载不提示、报告回填、失败/去重对比 Toast。"""
+    from types import SimpleNamespace
+
+    from PySide6.QtCore import QObject, Signal
+    from PySide6.QtWidgets import QWidget
+
+    from ych.app import wire_task_feedback
+    from ych.ui.u6_common.toast import Toast
+
+    captured: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        Toast, "show_message",
+        staticmethod(lambda parent, msg, error=False, **k:
+                     captured.append((msg, error))),
+    )
+
+    class _Sigs(QObject):
+        task_done = Signal(str, str, str, str, object)
+
+    sigs = _Sigs()
+    report = SimpleNamespace(overall_score=60.0)
+    ctx = SimpleNamespace(
+        daos=lambda: SimpleNamespace(reports=SimpleNamespace(
+            latest_for=lambda p: report)),
+        log_dir=lambda: tmp_path,
+    )
+    rendered: list[object] = []
+    dedup = SimpleNamespace(render_report=rendered.append)
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    compare_srcs: dict[str, list[str]] = {}
+
+    toast = wire_task_feedback(ctx, sigs, dedup, parent, compare_srcs)
+    toast("已提交 3 条预处理任务")
+    assert captured[-1] == ("已提交 3 条预处理任务", False)
+
+    sigs.task_done.emit("t1", "download", "success", "", {})   # 下载不提示
+    assert len(captured) == 1
+
+    compare_srcs["t2"] = [r"C:\w\a.mp4"]
+    sigs.task_done.emit("t2", "compare", "success", "",
+                        {"overall_score": 60.0})
+    assert rendered == [report]
+    assert "重复度分析完成" in captured[-1][0]
+
+    sigs.task_done.emit("t3", "preprocess", "failed", "[AI001] 模型缺失", {})
+    assert captured[-1][1] is True and "AI001" in captured[-1][0]
+
+    sigs.task_done.emit("t4", "dedup", "success", "",
+                        {"outputs": ["o"], "failed": 0, "skipped": 0,
+                         "before_pct": 80.0, "after_pct": 12.0})
+    assert "80.0% → 12.0%" in captured[-1][0]

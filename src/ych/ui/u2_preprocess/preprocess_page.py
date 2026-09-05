@@ -1,7 +1,7 @@
 # 预处理工作台（U2）：素材树 + 处理项面板 + 框选画布 + 开始按钮
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from ych.ui.u2_preprocess.asset_tree import AssetTree
 from ych.ui.u2_preprocess.box_select_canvas import BoxSelectCanvas
 from ych.ui.u2_preprocess.option_panel import OptionPanel
+from ych.ui.u6_common.toast import Toast
 
 
 class _SchedulerLike(Protocol):
@@ -32,10 +33,13 @@ class PreprocessPage(QWidget):
     def __init__(
         self,
         scheduler: _SchedulerLike | None = None,
+        frame_loader: Callable[[str], str] | None = None,   # 素材→预览帧图
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._scheduler = scheduler
+        self._frame_loader = frame_loader
+        self._preview_worker: Any | None = None
         root = QVBoxLayout(self)
 
         split = QSplitter()
@@ -65,11 +69,12 @@ class PreprocessPage(QWidget):
         root.addWidget(split, 1)
 
         bottom = QHBoxLayout()
-        btn_preview = QPushButton("预览框选帧")
-        btn_preview.setObjectName("secondaryBtn")
+        self.btn_preview = QPushButton("预览框选帧")
+        self.btn_preview.setObjectName("secondaryBtn")
+        self.btn_preview.clicked.connect(self._on_preview)
         btn_start = QPushButton(self.tr("开始处理"))
         btn_start.clicked.connect(self._on_start)
-        bottom.addWidget(btn_preview)
+        bottom.addWidget(self.btn_preview)
         bottom.addStretch(1)
         bottom.addWidget(btn_start)
         root.addLayout(bottom)
@@ -124,10 +129,45 @@ class PreprocessPage(QWidget):
 
     def _on_start(self) -> None:
         payload: object | None = self.build_payload()
-        if payload is None or self._scheduler is None:
+        if payload is None:
+            Toast.show_message(self, "请先在左侧勾选要处理的素材")
+            return
+        if self._scheduler is None:
             return
         data: dict[str, object] = getattr(payload, "data", {})
         raw_items = data.get("items") or []
         items: list[object] = list(raw_items) if isinstance(raw_items, list) else []
         self._scheduler.submit(payload)
         self.submitted.emit(len(items))
+
+    # ---- 预览框选帧 ----
+    def _on_preview(self) -> None:
+        """取第一个勾选素材的中间帧显示到画布，供手动框选。"""
+        from ych.ui.u6_common.llm_worker import LlmWorker
+
+        if self._frame_loader is None or self._preview_worker is not None:
+            return
+        srcs = self.asset_tree.checked_files()
+        if not srcs:
+            Toast.show_message(self, "请先在左侧勾选素材，再预览框选帧")
+            return
+        self.btn_preview.setEnabled(False)
+        src = srcs[0]
+        worker = LlmWorker(lambda: self._frame_loader(src))
+        self._preview_worker = worker
+        worker.done.connect(self._on_preview_done)      # 绑定方法→回 UI 线程
+        worker.failed.connect(self._on_preview_failed)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _restore_preview(self) -> None:
+        self.btn_preview.setEnabled(True)
+        self._preview_worker = None
+
+    def _on_preview_done(self, path: object) -> None:
+        self._restore_preview()
+        self.load_frame_image(str(path))
+
+    def _on_preview_failed(self, msg: str) -> None:
+        self._restore_preview()
+        Toast.show_message(self, f"抽帧失败：{msg}", error=True)

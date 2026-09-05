@@ -215,3 +215,19 @@ def test_submit_from_fail_record_rebuilds_payload(env) -> None:
     assert payload.data["items"][0]["src"] == "v.mp4"
 
 
+
+
+def test_task_done_signal_carries_type_state_summary(env) -> None:
+    """终态信号：UI 反馈按任务类型路由所依赖的字段。"""
+    handler = SyncFakeHandler()
+    env["sched"].register_handler("preprocess", handler)
+    done: list[tuple[str, str, dict]] = []
+    env["sched"].task_done.connect(
+        lambda _tid, ttype, state, _msg, summary:
+            done.append((ttype, state, dict(summary or {}))),
+    )
+    payload = TaskPayload(type="preprocess",
+                          data={"items": [{"src": "a.mp4", "ops": {}}]})
+    tid = env["sched"].submit(payload)
+    assert _wait_states(env, tid, {"success"}) == "success"
+    assert done == [("preprocess", "success", {"fake": True})]
