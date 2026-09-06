@@ -2,6 +2,7 @@
 # solid：pad 放大画幅；blur：split+gblur+overlay 用画面自身模糊垫底
 from __future__ import annotations
 
+import re
 from typing import ClassVar
 
 from ych.common.schemas import MediaInfo
@@ -11,6 +12,22 @@ from ych.core.m3_dedup.techniques.base import (
     ParamField,
     as_float,
 )
+
+# 颜色白名单：具名色 + 0xRRGGBB/#RRGGBB（防任意串注入滤镜图）
+_COLOR_RE = re.compile(r"^(?:0x|#)?[0-9a-fA-F]{6}$")
+_NAMED_COLORS = frozenset({
+    "black", "white", "gray", "grey", "red", "green", "blue",
+    "yellow", "orange", "purple", "brown", "navy", "silver",
+})
+
+
+def _safe_color(raw: object) -> str:
+    color = str(raw).strip().lower()
+    if color in _NAMED_COLORS:
+        return color
+    if _COLOR_RE.match(color):
+        return f"0x{color.lstrip('0x#')}"
+    return "black"
 
 
 class BorderTechnique(DedupTechnique):
@@ -31,8 +48,11 @@ class BorderTechnique(DedupTechnique):
         probe: MediaInfo = ctx.probe   # type: ignore[assignment]
         b = max(2, round(probe.width * as_float(p["width_pct"], 0.03) / 2) * 2)
         if str(p["style"]) == "solid":
-            color = str(p["color"])
-            ctx.vf_filters.append(f"pad=iw+{2 * b}:ih+{2 * b}:{b}:{b}:{color}")
+            color = _safe_color(p["color"])
+            # pad 输出必须偶数（yuv420p/libx264）：odd 输入也取齐到偶数
+            ctx.vf_filters.append(
+                f"pad=2*ceil((iw+{2 * b})/2):2*ceil((ih+{2 * b})/2):{b}:{b}:{color}"
+            )
         else:
             ctx.vf_filters.append(
                 f"split[a][b];[b]scale=iw+{2 * b}:ih+{2 * b},gblur=sigma=20[bg];"

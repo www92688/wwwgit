@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -160,5 +161,7 @@ class PixabayPlugin(PlatformPlugin):
         on_progress: ProgressFn | None,
         resume: ResumeState | None,
         token: CancellationToken | None,
+        on_state: Callable[[ResumeState], None] | None = None,
     ) -> ResumeState:
-        return super().download(meta, dest_part, on_progress, resume, token)
+        return super().download(meta, dest_part, on_progress, resume, token,
+                                on_state=on_state)

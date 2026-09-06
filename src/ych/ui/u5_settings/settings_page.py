@@ -263,15 +263,15 @@ class SettingsPage(QWidget):
         )
         self.proxy_port.editingFinished.connect(self._commit_port)
         self.download_conc.editingFinished.connect(
-            lambda: config.set("download_concurrency",
-                               int(self.download_conc.text() or 3))
+            lambda: self._commit_int_setting(self.download_conc,
+                                             "download_concurrency", 3)
         )
         self.process_conc.editingFinished.connect(
-            lambda: config.set("process_concurrency",
-                               int(self.process_conc.text() or 2))
+            lambda: self._commit_int_setting(self.process_conc,
+                                             "process_concurrency", 2)
         )
         self.max_retry.editingFinished.connect(
-            lambda: config.set("max_retry", int(self.max_retry.text() or 2))
+            lambda: self._commit_int_setting(self.max_retry, "max_retry", 2)
         )
         self.readonly_check.toggled.connect(
             lambda v: config.set("readonly_protect_raw", v)
@@ -780,6 +780,15 @@ class SettingsPage(QWidget):
         except ValueError:
             port = 0
         self._config.set("proxy_port", port)
+
+    def _commit_int_setting(self, edit: QLineEdit, key: str, fallback: int) -> None:
+        """整型设置提交：非法输入回退默认值并回显规范化结果。"""
+        try:
+            value = int(edit.text())
+        except ValueError:
+            value = fallback
+        self._config.set(key, max(0, value))
+        edit.setText(str(max(0, value)))
 
     def _open_net_check(self) -> None:
         """打开网络检测面板（网站延迟 + IP 信息，全部后台线程，不阻塞界面）。"""

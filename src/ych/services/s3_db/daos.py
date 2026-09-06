@@ -217,6 +217,22 @@ class DownloadTaskDao:
             out.append(item)
         return out
 
+    def find_resumable(self, plugin_id: str, video_key: str) -> DownloadTaskRow | None:
+        """同素材最近一条带断点状态且未完成的行（重新提交时复用续传）。"""
+        rows = self._db.query(
+            "SELECT * FROM download_task"
+            " WHERE platform_id=? AND dest_path IS NULL AND resume_state IS NOT NULL"
+            " AND status IN ('failed','canceled','interrupted')"
+            " AND json_extract(video_meta,'$.video_key')=?"
+            " ORDER BY id DESC LIMIT 1",
+            (plugin_id, video_key),
+        )
+        if not rows:
+            return None
+        result = _row_to_dataclass(rows[0], DownloadTaskRow)
+        assert isinstance(result, DownloadTaskRow)
+        return result
+
     def set_dest(self, task_id: int, dest: str) -> None:
         def _w(conn: sqlite3.Connection) -> None:
             conn.execute(
@@ -279,7 +295,7 @@ class ProcessTaskDao:
     ) -> None:
         def _w(conn: sqlite3.Connection) -> None:
             conn.execute(
-                "UPDATE process_task SET status=?, dst_path=COALESCE(dst_path,dst_path),"
+                "UPDATE process_task SET status=?,"
                 " result_summary=?, error_code=?, finished_at=datetime('now','localtime')"
                 " WHERE id=?",
                 (status,
@@ -450,7 +466,7 @@ class ReportDao:
     def latest_for(self, src: Path) -> CompareReport | None:
         rows = self._db.query(
             "SELECT report FROM compare_report WHERE src_path=?"
-            " ORDER BY created_at DESC LIMIT 1",
+            " ORDER BY id DESC LIMIT 1",   # id 单调递增：同秒多报告也取最新
             (str(src),),
         )
         if not rows:

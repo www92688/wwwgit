@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
 
-from ych.common.cancellation import CancellationToken
+from ych.common.cancellation import CancellationToken, TaskCanceled
 from ych.common.errors import ERR_DL_WRITE_FAILED, AppError
 from ych.common.schemas import VideoMeta
 
@@ -40,6 +41,8 @@ class CandidateCache:
             user_data_dir() / "compare_cache"
         )
         self._ttl_s = ttl_days * 86400.0
+        self._locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
 
     def path_for(self, plugin_id: str, video_key: str) -> Path:
         safe_key = "".join(c for c in video_key if c.isalnum() or c in "-_")
@@ -50,27 +53,36 @@ class CandidateCache:
         meta: VideoMeta,
         token: CancellationToken | None = None,
     ) -> Path:
-        """命中且未过期直接返回；过期即删；未命中走下载（.part → 原子落位）。"""
+        """命中且未过期直接返回；过期即删；未命中走下载（.part → 原子落位）。
+
+        同 key 并发请求串行化（同一 .part 交错写入会损坏文件）。
+        """
         self._lazy_cleanup()
         target = self.path_for(meta.plugin_id, meta.video_key)
-        if target.exists():
-            age = time.time() - target.stat().st_mtime
-            if age <= self._ttl_s:
-                return target
-            logger.info("候选缓存过期：%s", target.name)
-            target.unlink(missing_ok=True)
+        key = f"{meta.plugin_id}/{meta.video_key}"
+        with self._locks_guard:
+            lock = self._locks.setdefault(key, threading.Lock())
+        with lock:
+            if target.exists():
+                age = time.time() - target.stat().st_mtime
+                if age <= self._ttl_s:
+                    return target
+                logger.info("候选缓存过期：%s", target.name)
+                target.unlink(missing_ok=True)
 
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_name(target.name + ".part")
-        try:
-            final = self._download(meta, tmp, token)
-            os.replace(final, target)
-        except Exception as exc:
-            raise AppError(ERR_DL_WRITE_FAILED,
-                           f"候选下载失败：{meta.video_key}", cause=exc) from exc
-        finally:
-            tmp.unlink(missing_ok=True)
-        return target
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_name(target.name + ".part")
+            try:
+                final = self._download(meta, tmp, token)
+                os.replace(final, target)
+            except TaskCanceled:
+                raise
+            except Exception as exc:
+                raise AppError(ERR_DL_WRITE_FAILED,
+                               f"候选下载失败：{meta.video_key}", cause=exc) from exc
+            finally:
+                tmp.unlink(missing_ok=True)
+            return target
 
     # ---- 内部 ----
     def _lazy_cleanup(self) -> None:

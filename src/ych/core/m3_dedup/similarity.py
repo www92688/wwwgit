@@ -85,9 +85,6 @@ class SimilarityCalculator:
         w_c, w_m, w_r = weights
         overall = float(np.clip(w_c * s_comp + w_m * s_motion + w_r * s_rhythm,
                                 0.0, 1.0))
-        # 值域自检：三分量均 ∈ [0,1]
-        for v in (s_comp, s_motion, s_rhythm):
-            v = min(max(v, 0.0), 1.0)
         return DimScores(
             composition=min(max(s_comp, 0.0), 1.0),
             motion=min(max(s_motion, 0.0), 1.0),

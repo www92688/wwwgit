@@ -470,7 +470,8 @@ class FakeDownloadPlugin:
         self.max_active = 0
 
     def download(self, meta: VideoMeta, dest_part: Path, on_progress,
-                 resume: ResumeState | None, token: CancellationToken | None):
+                 resume: ResumeState | None, token: CancellationToken | None,
+                 on_state=None):
         with self.lock:
             self.active += 1
             self.max_active = max(self.max_active, self.active)

@@ -73,7 +73,7 @@ class DedupPage(QWidget):
         self._preset_radios: dict[str, QRadioButton] = {}
         for pid, label in (("light", "轻度"), ("mid", "中度"),
                            ("heavy", "重度")):
-            radio = QRadioButton(label + "（推荐档）")
+            radio = QRadioButton(label)
             radio.setProperty("preset_id", pid)
             self.radio_group.addButton(radio)
             radio.setChecked(pid == "mid")
@@ -135,10 +135,8 @@ class DedupPage(QWidget):
     def render_report(self, report, before_pct=None, after_pct=None):   # type: ignore[no-untyped-def]
         self.report_view.show_report(report, before_pct, after_pct)
         if report is not None and self._schemes is not None:
-            recommended = self._schemes.recommend(
-                float(report.overall_score) / 100.0 if report.overall_score > 1.5
-                else float(report.overall_score),
-            )
+            # ReportBuilder 落库的 overall_score 恒为 0~100 百分数
+            recommended = self._schemes.recommend(float(report.overall_score) / 100.0)
             self.mark_recommended(recommended)
 
     def mark_recommended(self, preset_id: str) -> None:

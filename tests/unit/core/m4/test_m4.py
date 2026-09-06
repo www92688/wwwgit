@@ -184,14 +184,16 @@ def test_crash_recovery_resume_and_fail_branches(env, tmp_path) -> None:
     daos.downloads.update_state(rid_resume, "running",
                                 resume=ResumeState(downloaded_bytes=100))
     rid_nores = daos.downloads.create(meta, "压面条")
-    daos.downloads.update_state(rid_nores, "running")
+    # progress>0 且无断点状态：已开跑但崩溃点早于首次断点落库 → 失败列表
+    daos.downloads.update_state(rid_nores, "running", progress=0.5)
     pid = daos.processes.create("preprocess", tmp_path / "x.mp4", {})
     daos.processes.mark_running(pid)
 
     summary = env["sched"].recover_on_startup()
     assert summary.resumed_downloads == 1
     assert summary.moved_to_fail == 2
-    # 无续传状态的下载行保持 interrupted；有续传的已被重新入队（非 interrupted）。
+    # 已开始但无断点的下载行保持 interrupted 转失败列表；
+    # 有续传的已被重新入队（非 interrupted）。
     # 续传行状态由异步 worker 翻转，轮询等待其离开 interrupted（消除调度竞态）。
     deadline = time.monotonic() + 8
     rows = {r.id for r in daos.downloads.list_by_status("interrupted")}

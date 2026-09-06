@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
 
 from ych.common.cancellation import CancellationToken, SkippedSignal, TaskCanceled
 from ych.common.errors import ERR_TASK_NOT_FOUND, AppError
@@ -47,11 +47,6 @@ class TaskResult:
 HandlerFn = Callable[[ManagedTask], TaskResult]
 
 
-
-# 处理类任务并发闸门默认值（T-7；下载类由 DownloadManager.semaphore 自行控制）
-_PROCESS_CONCURRENCY = 2
-
-
 class TaskWorker(QRunnable):
     """五步执行体：先写库 running → handler → 成功/取消/跳过/失败分派。
 
@@ -65,7 +60,14 @@ class TaskWorker(QRunnable):
 
     def run(self) -> None:
         task, sched = self._task, self._sched
+        gate_held = False
+        retrying = False
         try:
+            # 处理类并发闸门在置 running 之前获取：排队等待期不产生"伪 running"
+            # 行（崩溃恢复不会把从未开始的任务误判为中断）
+            if task.payload.type != "download":
+                sched.acquire_process_slot(task.token)
+                gate_held = True
             sched._mark_running(task)
             result = sched._handlers[task.payload.type](task)
             sched._finish(task, "success",
@@ -84,12 +86,17 @@ class TaskWorker(QRunnable):
                 delay = sched._retry.backoff_seconds(task.retry_count - 1)
                 logger.info("task %s 将在 %ss 后第 %d 次重试",
                             task.task_id, delay, task.retry_count)
-                sched._retry_requested.emit(task)
+                retrying = True
+                sched._retry_requested.emit(task, delay)
                 return
             sched._finish(task, "failed", message=str(exc),
                           error_code=code, err=exc)
         finally:
-            sched._on_worker_done(task)
+            if gate_held:
+                sched.release_process_slot()
+            # 重试路径任务尚未结束：不计入批次完成数（否则 done > total）
+            if not retrying:
+                sched._on_worker_done(task)
 
 
 class TaskScheduler(QObject):
@@ -102,7 +109,7 @@ class TaskScheduler(QObject):
     download_row_registered = Signal(int, str, str)   # row_id, platform, title
     # task_id, type, state, message, summary（终态反馈；UI 按类型路由）
     task_done = Signal(str, str, str, str, object)
-    _retry_requested = Signal(object)            # ManagedTask（跨线程排队回主循环）
+    _retry_requested = Signal(object, float)     # ManagedTask, 退避秒数（跨线程排队回主循环）
 
     def __init__(
         self,
@@ -116,13 +123,17 @@ class TaskScheduler(QObject):
         self._daos = daos
         self._handlers: dict[str, HandlerFn] = {}
         self._tasks: dict[str, ManagedTask] = {}
-        self._process_sem = threading.BoundedSemaphore(_PROCESS_CONCURRENCY)
+        # 处理类并发闸门（T-7）：读取设置页 process_concurrency，
+        # 下载类由 DownloadManager.semaphore（download_concurrency）自行控制
+        process_conc = max(1, int(config.get_typed("process_concurrency", int)))
+        self._process_sem = threading.BoundedSemaphore(process_conc)
         self._retry = RetryController(config)
         self._fails = FailRecordManager(daos.fails)
         self._recovery = CrashRecovery(daos)
         self._retry_requested.connect(self._do_resubmit)
         self._batch_done: dict[str, int] = defaultdict(int)
         self._batch_total: dict[str, int] = defaultdict(int)
+        self._batch_lock = threading.Lock()
 
     # ---- handler 注册 ----
     def register_handler(self, task_type: str,
@@ -134,6 +145,7 @@ class TaskScheduler(QObject):
     def submit(self, payload: TaskPayload, priority: int = 0) -> str:
         task_id = uuid.uuid4().hex
         task = ManagedTask(task_id=task_id, payload=payload)
+        self._evict_terminal_tasks()
         self._persist_new(task)
         self._tasks[task_id] = task
         batch_id = payload.data.get("batch_id")
@@ -143,14 +155,32 @@ class TaskScheduler(QObject):
         self._dispatch(task, priority)
         return task_id
 
+    _TERMINAL_STATES = frozenset(
+        {"success", "failed", "skipped", "interrupted", "canceled"},
+    )
+
+    def _evict_terminal_tasks(self) -> None:
+        """内存任务表超阈值时回收终态条目（长会话防无限增长）。"""
+        if len(self._tasks) < 512:
+            return
+        for tid in [
+            tid for tid, t in self._tasks.items()
+            if t.state in self._TERMINAL_STATES
+        ]:
+            del self._tasks[tid]
+
     def _dispatch(self, task: ManagedTask, priority: int = 0) -> None:
         if task.state != "pending":
             return
         self._pool.start(TaskWorker(self, task), priority)
 
-    def _do_resubmit(self, task: object) -> None:
+    def _do_resubmit(self, task: object, delay: float = 0.0) -> None:
         assert isinstance(task, ManagedTask)
-        self._resubmit(task)
+        # 指数退避在主线程经 QTimer 延迟重投（信号跨线程已排队到主循环）
+        if delay > 0:
+            QTimer.singleShot(int(delay * 1000), lambda: self._resubmit(task))
+        else:
+            self._resubmit(task)
 
     def _resubmit(self, task: ManagedTask) -> None:
         task.state = "pending"
@@ -210,14 +240,33 @@ class TaskScheduler(QObject):
             if resume_ids:
                 task.db_row_id = resume_ids[0]
             elif metas:
-                task.db_row_id = self._daos.downloads.create(metas[0], keyword)
-                self.download_row_registered.emit(
-                    task.db_row_id, metas[0].plugin_id, metas[0].title,
+                # 重新提交同一素材：优先复用带断点状态的历史行（断点续传）
+                m0 = metas[0]
+                resumable = self._daos.downloads.find_resumable(
+                    m0.plugin_id, m0.video_key,
                 )
+                if resumable is not None:
+                    task.db_row_id = resumable.id
+                    # 队列视图可能刚从重启后重建：补发注册信号（幂等）
+                    self.download_row_registered.emit(
+                        task.db_row_id, m0.plugin_id, m0.title,
+                    )
+                else:
+                    task.db_row_id = self._daos.downloads.create(m0, keyword)
+                    self.download_row_registered.emit(
+                        task.db_row_id, m0.plugin_id, m0.title,
+                    )
         else:
             items_raw = data.get("items") or []
             items: list[dict[str, object]] = list(items_raw)  # type: ignore[call-overload]
             src = Path(str(items[0]["src"])) if items else Path(".")
+            if not items:
+                # compare 类载荷无 items，取首个 src 落库（避免脏 "." 行）
+                srcs_raw = data.get("srcs") or []
+                srcs = [str(s) for s in srcs_raw  # type: ignore[attr-defined]
+                        if str(s)]
+                if srcs:
+                    src = Path(srcs[0])
             task.db_row_id = self._daos.processes.create(p.type, src, data)
 
     def _mark_running(self, task: ManagedTask) -> None:
@@ -261,36 +310,44 @@ class TaskScheduler(QObject):
         # 可能在写库完成前读到终态内存态——曾先后造成"行仍 running"
         # 与"失败记录尚未落库"两类断言竞态
         rid = task.db_row_id
-        if state == "failed" and err is not None:
-            self._fails.record(task, err)
-        if rid is not None:
-            if task.payload.type == "download":
-                if output_path:
-                    self._daos.downloads.set_dest(rid, output_path)
-                progress = 1.0 if state == "success" else None
-                self._daos.downloads.update_state(
-                    rid, state,  # type: ignore[arg-type]
-                    progress=progress, error_code=error_code,
-                )
-            else:
-                if state == "success" and output_path:
-                    self._daos.processes.set_dst(rid, Path(output_path))
-                self._daos.processes.finish(
-                    rid, state, summary, error_code,  # type: ignore[arg-type]
-                )
-        task.state = state
-        self.task_state.emit(task.task_id, state, message)
-        self.task_done.emit(
-            task.task_id, task.payload.type, state, message,
-            dict(summary or {}),
-        )
+        try:
+            if state == "failed" and err is not None:
+                self._fails.record(task, err)
+            if rid is not None:
+                if task.payload.type == "download":
+                    if output_path:
+                        self._daos.downloads.set_dest(rid, output_path)
+                    progress = 1.0 if state == "success" else None
+                    self._daos.downloads.update_state(
+                        rid, state,  # type: ignore[arg-type]
+                        progress=progress, error_code=error_code,
+                    )
+                else:
+                    if state == "success" and output_path:
+                        self._daos.processes.set_dst(rid, Path(output_path))
+                    self._daos.processes.finish(
+                        rid, state, summary, error_code,  # type: ignore[arg-type]
+                    )
+        except Exception:
+            # 终态落库失败不阻断状态翻转与信号：内存态照常收敛，
+            # 遗留的 running 行由下次启动的崩溃恢复兜底
+            logger.exception("任务 %s 终态落库失败", task.task_id)
+        finally:
+            task.state = state
+            self.task_state.emit(task.task_id, state, message)
+            self.task_done.emit(
+                task.task_id, task.payload.type, state, message,
+                dict(summary or {}),
+            )
 
     def _on_worker_done(self, task: ManagedTask) -> None:
         batch_id = task.payload.data.get("batch_id")
         if batch_id is not None:
             key = str(batch_id)
-            self._batch_done[key] += 1
-            self.queue_stats.emit(self._batch_done[key], self._batch_total[key])
+            with self._batch_lock:      # 多 worker 并发收尾，计数需互斥
+                self._batch_done[key] += 1
+                done, total = self._batch_done[key], self._batch_total[key]
+            self.queue_stats.emit(done, total)
 
 
 

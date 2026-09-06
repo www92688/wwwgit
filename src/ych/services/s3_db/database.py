@@ -96,6 +96,11 @@ class Database:
             except sqlite3.Error as exc:
                 conn.rollback()
                 raise AppError(ERR_DB_IO, "数据库写入失败", cause=exc) from exc
+            except BaseException:
+                # 非 sqlite 异常（序列化失败/取消等）也必须回滚：
+                # 否则事务滞留持锁，其他线程 busy_timeout 耗尽后全部 DB004
+                conn.rollback()
+                raise
 
     def query(self, sql: str, params: tuple[object, ...] = ()) -> list[sqlite3.Row]:
         """只读查询（走当前线程连接，不加写锁）。"""

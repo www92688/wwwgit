@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ych.common.cancellation import CancellationToken
+from ych.common.cancellation import CancellationToken, TaskCanceled
 from ych.common.errors import ERR_AI_MODEL_MISSING, AppError
 from ych.common.schemas import ResumeState
 from ych.services.s2_ai.model_registry import ModelName, models_dir
@@ -113,8 +113,14 @@ class ModelDownloader:
         dest = self._dir / spec.file
         part = Path(str(dest) + ".part")
         last_exc: Exception | None = None
+        prev_url: str | None = None
 
         for url in spec.urls:
+            if prev_url is not None and url != prev_url:
+                # 候选源是不同文件（如 v4/v3 检测模型）：跨源续传会把两个
+                # 模型拼接成损坏文件，切换源必须丢弃前一个源的 .part
+                part.unlink(missing_ok=True)
+            prev_url = url
             try:
                 self.progress[key] = 0.0
                 resume = self._resume_for(part)
@@ -124,6 +130,9 @@ class ModelDownloader:
                         key, min(1.0, max(0.0, ratio))),
                     token=token,
                 )
+            except TaskCanceled:
+                # 保留 .part：同源重试/重启应用可续传
+                raise
             except AppError as exc:
                 logger.warning("模型源失败 %s：%s", url, exc.message)
                 last_exc = exc

@@ -61,8 +61,9 @@ class _CanvasLabel(QLabel):
         offset_y = max((self.height() - pm.height()) // 2, 0)
         x0 = max(rect.x() - offset_x, 0) / pm.width()
         y0 = max(rect.y() - offset_y, 0) / pm.height()
-        x1 = min(rect.right() - offset_x, pm.width()) / pm.width()
-        y1 = min(rect.bottom() - offset_y, pm.height()) / pm.height()
+        # QRect.right()/bottom() 是闭区间末像素（x+w-1），归一化右/下边界需 +1
+        x1 = min(rect.right() + 1 - offset_x, pm.width()) / pm.width()
+        y1 = min(rect.bottom() + 1 - offset_y, pm.height()) / pm.height()
         w, h = x1 - x0, y1 - y0
         if w <= 0 or h <= 0:
             return None
@@ -94,6 +95,8 @@ class BoxSelectCanvas(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         self._label = _CanvasLabel()
         root.addWidget(self._label)
+        # 框选结果先登记进 _boxes（提交时读取），再通知变化
+        self._label.region_added.connect(self.register_region)
         self._label.region_added.connect(lambda _b: self.regions_changed.emit())
         self._boxes: list[BBox] = []
 

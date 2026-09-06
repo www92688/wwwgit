@@ -295,10 +295,21 @@ def test_border_solid_and_blur() -> None:
     assert bd is not None
     solid_ctx = bd.apply(_ctx(), {"style": "solid", "width_pct": 0.05})
     f0 = solid_ctx.vf_filters[0]
-    assert f0.startswith("pad=iw+") and ":black" in f0
+    # 偶数化 pad：2*ceil((iw+N)/2) 保证 yuv420p 输出宽高为偶数
+    assert f0.startswith("pad=2*ceil((iw+") and ":black" in f0
     blur_ctx = bd.apply(_ctx(), {"style": "blur"})
     joined = ",".join(blur_ctx.vf_filters)
     assert "split" in joined and "gblur=sigma=20" in joined and "overlay" in joined
+
+
+def test_border_color_sanitized() -> None:
+    bd = make_default_registry().get("border")
+    assert bd is not None
+    # 注入性/异常颜色串 → 回退 black；#RRGGBB → 0xRRGGBB
+    ctx = bd.apply(_ctx(), {"style": "solid", "color": "a:b;c,d"})
+    assert ":black" in ctx.vf_filters[0]
+    ctx2 = bd.apply(_ctx(), {"style": "solid", "color": "#ff8800"})
+    assert ":0xff8800" in ctx2.vf_filters[0]
 
 
 # ---------- SchemeManager：recommend 边界 + seed 一致性 ----------

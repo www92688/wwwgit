@@ -134,11 +134,14 @@ class FrameLevelProcessor:
             "-s", f"{probe.width}x{probe.height}", "-r", f"{fps:.6f}",
             "-i", "pipe:0",
         ]
+        keep_audio = probe.has_audio and not ops.strip_audio
+        if keep_audio:
+            # 原声来自第二个输入（rawvideo 管道只有画面）：
+            # map 0:v 管道视频 + map 1:a? 源音频，音频缺失时不报错
+            encode_args += ["-i", str(src), "-map", "0:v", "-map", "1:a?"]
         if vf:
             encode_args += ["-vf", vf]
-        encode_args += EncoderSpec().to_args(
-            with_audio=probe.has_audio and not ops.strip_audio
-        )
+        encode_args += EncoderSpec().to_args(with_audio=keep_audio)
         encode_args += ["-f", "mp4", str(out_target)]
 
         cache: dict[int, npt.NDArray[np.uint8]] = {}

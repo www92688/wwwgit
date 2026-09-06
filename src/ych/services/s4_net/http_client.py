@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -16,6 +17,7 @@ import ych
 from ych.common.cancellation import CancellationToken, ProgressFn
 from ych.common.errors import (
     ERR_AI_REMOTE,
+    ERR_DL_VERIFY_FAILED,
     ERR_NET_DNS_FAIL,
     ERR_NET_PROXY,
     ERR_NET_TIMEOUT,
@@ -216,12 +218,15 @@ class HttpClient(QObject):
         resume: ResumeState | None,
         on_progress: ProgressFn | None,
         token: CancellationToken | None,
+        on_state: Callable[[ResumeState], None] | None = None,
     ) -> ResumeState:
         """流式下载到 dest（.part 临时文件），支持断点续传。
 
         - resume 存在且临时文件在 → Range 续传；206 且 ETag 一致才追加；
         - 200/416/ETag 变化/无 Range 支持 → 丢弃重下（etag 置 ""）；
-        - 取消/异常时保留 .part，ResumeState 持久化由调用方负责。
+        - 取消/异常时保留 .part，ResumeState 持久化由调用方负责；
+        - on_state 在每次进度落点回调当前 ResumeState（调用方借此持久化，
+          支撑崩溃后从数据库恢复续传）。
         """
         temp = Path(resume.temp_path) if resume and resume.temp_path else (
             Path(str(dest) + ".part")
@@ -270,6 +275,14 @@ class HttpClient(QObject):
         downloaded = start_from
         mode = "ab" if start_from > 0 else "wb"
 
+        def _emit_state() -> None:
+            if on_state is None:
+                return
+            on_state(ResumeState(
+                downloaded_bytes=downloaded, etag=etag,
+                total_bytes=total_bytes, temp_path=str(temp),
+            ))
+
         last_cb_ts = 0.0
         last_cb_bytes = 0
         try:
@@ -282,20 +295,31 @@ class HttpClient(QObject):
                     f.write(chunk)
                     downloaded += len(chunk)
                     now = time.monotonic()
-                    if on_progress is not None and (
-                        now - last_cb_ts >= _PROGRESS_INTERVAL_S
-                        or downloaded - last_cb_bytes >= _PROGRESS_INTERVAL_BYTES
+                    if now - last_cb_ts >= _PROGRESS_INTERVAL_S or (
+                        downloaded - last_cb_bytes >= _PROGRESS_INTERVAL_BYTES
                     ):
                         last_cb_ts = now
                         last_cb_bytes = downloaded
-                        on_progress(downloaded / total_bytes if total_bytes else 0.0)
+                        if on_progress is not None:
+                            on_progress(
+                                downloaded / total_bytes if total_bytes else 0.0
+                            )
+                        _emit_state()
                 f.flush()
                 os.fsync(f.fileno())
         finally:
             resp.close()
 
+        # 服务端提前断流时 iter_content 正常结束：长度已知但不足 → 拒绝落位
+        if remaining and downloaded != total_bytes:
+            raise AppError(
+                ERR_DL_VERIFY_FAILED,
+                f"下载不完整（{downloaded}/{total_bytes} 字节），请重试",
+            )
+
         if on_progress is not None and total_bytes:
             on_progress(1.0)
+        _emit_state()
         return ResumeState(
             downloaded_bytes=downloaded,
             etag=etag,

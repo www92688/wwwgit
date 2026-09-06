@@ -32,17 +32,19 @@ class CropScaleTechnique(DedupTechnique):
     def apply(self, ctx: ClipContext, params: dict[str, object]) -> ClipContext:
         p = self.validate_params(params)
         probe: MediaInfo = ctx.probe   # type: ignore[assignment]
-        w, h = probe.width, probe.height
+        w, h = even_down(float(probe.width)), even_down(float(probe.height))
         m = as_float(p["margin_pct"], 0.08)
         if str(p["mode"]) == "crop":
             ow = even_down(w * (1 - 2 * m))
             oh = even_down(h * (1 - 2 * m))
             ctx.vf_filters.append(
-                f"crop={ow}:{oh}:(iw-ow)/2:(ih-oh)/2,scale={w}:{h}"
+                # 偏移 trunc 取整：奇数尺寸下 (iw-ow)/2 会出现 .5
+                f"crop={ow}:{oh}:trunc((iw-ow)/2):trunc((ih-oh)/2),"
+                f"scale={w}:{h}"
             )
         else:
             sw = even_down(w * (1 + m))
             ctx.vf_filters.append(
-                f"scale={sw}:-2,crop={w}:{h}:(iw-ow)/2:(ih-oh)/2"
+                f"scale={sw}:-2,crop={w}:{h}:trunc((iw-ow)/2):trunc((ih-oh)/2)"
             )
         return ctx

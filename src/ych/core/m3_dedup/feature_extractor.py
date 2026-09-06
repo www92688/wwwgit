@@ -37,10 +37,13 @@ class CompositionEmbedder:
         frames_img: list[npt.NDArray[np.uint8]],
         shots: list[tuple[float, float]],
     ) -> tuple[npt.NDArray[np.float32], list[float]]:
-        """返回 (composition 矩阵, 对应镜头中点时刻)；m>32 均匀下采样。"""
+        """返回 (composition 矩阵, 对应镜头中点时刻)；m>32 先选点再嵌入。"""
         mids = [0.5 * (s + e) for s, e in shots]
         if not mids or not frames_ts:
             return (np.zeros((0, 512), dtype=np.float32), [])
+        if len(mids) > MAX_SHOTS:      # 先均匀选点再嵌入：省去被丢弃的推理
+            sel = np.linspace(0, len(mids) - 1, MAX_SHOTS).astype(int)
+            mids = [mids[i] for i in sel]
         idxs = [int(np.argmin(np.abs(np.asarray(frames_ts) - mid)))
                 for mid in mids]
         pairs = [(frames_ts[i], frames_img[i]) for i in idxs]
@@ -52,10 +55,6 @@ class CompositionEmbedder:
             return (np.zeros((0, 512), dtype=np.float32), [])
         norms = np.linalg.norm(vectors, axis=1, keepdims=True)
         vectors = vectors / np.maximum(norms, 1e-12)
-        if len(mids) > MAX_SHOTS:      # 均匀下采样至 32
-            sel = np.linspace(0, len(mids) - 1, MAX_SHOTS).astype(int)
-            vectors = vectors[sel]
-            mids = [mids[i] for i in sel]
         return (vectors.astype(np.float32), [round(m, 3) for m in mids])
 
 
@@ -67,6 +66,7 @@ class FeatureExtractService:
         prober: ProbeService,
         extractor: FrameExtractor,
         provider: InferenceProvider,
+        max_frames: int = MAX_FRAMES,
     ) -> None:
         self._prober = prober
         self._extractor = extractor
@@ -74,6 +74,7 @@ class FeatureExtractService:
         self._motion = MotionAnalyzer()
         self._rhythm = RhythmAnalyzer()
         self._embedder = CompositionEmbedder(provider)
+        self._max_frames = max(1, int(max_frames))
 
     def extract(
         self,
@@ -83,11 +84,11 @@ class FeatureExtractService:
         info = self._prober.probe(path)
         duration = max(info.duration_s, 1e-6)
         fps = SAMPLE_FPS
-        if duration * SAMPLE_FPS > MAX_FRAMES:
-            fps = MAX_FRAMES / duration          # 自适应降采样（详设 14.1.1）
+        if duration * SAMPLE_FPS > self._max_frames:
+            fps = self._max_frames / duration     # 自适应降采样（详设 14.1.1）
 
         frames = list(self._extractor.stream_pairs_all(
-            path, eff_fps=fps, max_frames=MAX_FRAMES, token=token,
+            path, eff_fps=fps, max_frames=self._max_frames, token=token,
         ))
         frames_ts = [f.ts for f in frames]
         frames_img = [f.img for f in frames]

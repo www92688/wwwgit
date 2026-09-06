@@ -114,15 +114,15 @@ class DedupPipeline:
         technique_params: list[dict[str, object]],
     ) -> ClipContext:
         ctx = ClipContext(src=src, probe=probe)
-        ids: list[str] = []
+        # id 去重（保留首次出现的参数）：重复手法既丢参数，又会让
+        # blur 边框产生同名 label 的滤镜图导致 ffmpeg 解析失败
         params_by_id: dict[str, dict[str, object]] = {}
         for item in technique_params:
             tid = str(item.get("id"))
             raw = item.get("params") or {}
             assert isinstance(raw, dict)
-            ids.append(tid)
-            params_by_id[tid] = raw
-        for technique in self._registry.ordered(ids):
+            params_by_id.setdefault(tid, raw)
+        for technique in self._registry.ordered(list(params_by_id)):
             ctx = technique.apply(ctx, params_by_id[technique.id])
         return ctx
 
@@ -136,7 +136,8 @@ class DedupPipeline:
         on_progress: ProgressFn | None,
         token: CancellationToken,
     ) -> None:
-        speed = max(ctx.speed_factor, 1e-6)
+        # atempo 合法域 [0.5, 2.0]：多个 speed 叠加越界时收敛到边界
+        speed = min(max(ctx.speed_factor, 0.5), 2.0)
         filters = list(ctx.vf_filters)
         filters.append(f"setpts=PTS/{speed:.6f}")
         keep_audio = ctx.keep_audio and probe.has_audio
@@ -147,7 +148,6 @@ class DedupPipeline:
             args += ["-af", f"atempo={speed:.6f}"]
         args += EncoderSpec().to_args(with_audio=keep_audio)
         args += ["-f", "mp4", "-y", str(out_target)]
-
         duration_eff = max(probe.duration_s / speed, 1e-6)
 
         from ych.common.errors import ERR_MED_TRANSCODE_FAILED, AppError

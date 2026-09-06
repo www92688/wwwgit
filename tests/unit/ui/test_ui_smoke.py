@@ -256,6 +256,7 @@ def test_wire_asset_refresh_feeds_pages(qapp, qtbot) -> None:
     class _Sigs(QObject):
         item_updated = Signal(int, str, float, str)
         workdir_changed = Signal(object)
+        scan_finished = Signal(int)
 
     sigs = _Sigs()
     rows = [
@@ -268,6 +269,10 @@ def test_wire_asset_refresh_feeds_pages(qapp, qtbot) -> None:
     ctx = SimpleNamespace(
         daos=lambda: daos,
         workdirs=lambda: SimpleNamespace(workdir_changed=sigs.workdir_changed),
+        scan_indexer=lambda: SimpleNamespace(
+            scan_finished=sigs.scan_finished,
+            incremental_scan=lambda: 0,
+        ),
     )
     pre_calls: list[list[AssetRow]] = []
     dedup_calls: list[list[str]] = []

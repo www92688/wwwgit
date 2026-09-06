@@ -207,11 +207,11 @@ class CapturePage(QWidget):
             Toast.show_message(self, "请至少勾选一个采集平台")
             return
         Toast.show_message(self, f"正在搜索：{'、'.join(keywords)} …")
+        self.result_list.clear_results()
         self._coordinator.search_multi(
             keywords, self.filter_panel.to_filters(), 30, platform_ids=selected,
         )
-        if self._history is not None and keywords:
-            self._history.record(keywords[0], [])
+        # 历史词由 SearchCoordinator 按词+实际平台记录（此处不再重复记录）
 
     # ---- AI 关键词扩展 ----
     def _on_ai_expand(self) -> None:
@@ -352,7 +352,8 @@ class CapturePage(QWidget):
         self.foreign_master.setChecked(True)
 
     def on_search_finished(self, result_set: Any) -> None:
-        self.result_list.set_results(
+        # 批量搜索逐词到达：追加而非覆盖（否则只看得到最后一个词的结果）
+        self.result_list.append_results(
             list(result_set.items), result_set.keyword,
             list(result_set.unavailable_platforms),
         )

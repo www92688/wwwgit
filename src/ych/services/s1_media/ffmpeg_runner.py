@@ -210,7 +210,14 @@ class FFmpegRunner:
                     break   # 尾部残帧：解码端异常退出由返回码兜底
                 frame = np.frombuffer(buf, dtype=np.uint8).reshape(h, w, 3)
                 out = frame_cb(frame)
-                enc.stdin.write(np.ascontiguousarray(out).tobytes())
+                try:
+                    enc.stdin.write(np.ascontiguousarray(out).tobytes())
+                except (BrokenPipeError, OSError):
+                    # 编码端已退出（如滤镜/编码器参数错误）：杀树并带 stderr 报错
+                    raise AppError(
+                        ERR_MED_TRANSCODE_FAILED,
+                        "帧级处理失败（编码端提前退出）",
+                    ) from RuntimeError("\n".join(list(enc_tail)[-5:]))
                 n_frames += 1
                 if on_progress is not None and total_frames > 0:
                     on_progress(min(1.0, n_frames / total_frames))

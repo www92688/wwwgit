@@ -80,8 +80,9 @@ class PreprocessPage(QWidget):
         bottom.addWidget(btn_start)
         root.addLayout(bottom)
 
-        # 手动模式：画布新区域注册到面板上下文
+        # 手动模式：画布新区域注册到面板上下文；清空按钮联动画布
         self.canvas.regions_changed.connect(self._sync_manual_regions)
+        self.option_panel.clear_requested.connect(self.canvas.clear_regions)
 
     # ---- 数据 ----
     def set_assets(self, rows: list[Any]) -> None:
@@ -94,6 +95,19 @@ class PreprocessPage(QWidget):
         """画布区域变化钩子（框选结果在提交时读取）。"""
 
     # ---- 提交 ----
+    @staticmethod
+    def _regions_to_dict(regions: Any) -> dict[str, object] | None:
+        """ManualRegions → revive_ops 可还原的 dict（每条素材独立拷贝）。"""
+        if regions is None:
+            return None
+        return {
+            "rects": [
+                {"x": b.x, "y": b.y, "w": b.w, "h": b.h} for b in regions.rects
+            ],
+            "time_start_s": regions.time_start_s,
+            "time_end_s": regions.time_end_s,
+        }
+
     def build_payload(self) -> Any:
         from ych.core.m2_preprocess.ops import (
             make_preprocess_payload,
@@ -106,19 +120,19 @@ class PreprocessPage(QWidget):
         boxes = getattr(self.canvas, "_boxes", [])
         manual = self.option_panel.manual_from_boxes(boxes) if boxes else None
         ops_template = self.option_panel.to_ops(manual)
+        wm_regions = self._regions_to_dict(ops_template.watermark_regions)
+        sub_regions = self._regions_to_dict(ops_template.subtitle_regions)
+        crop = ops_template.crop_rect
         items = []
         for src in srcs:
-            # 每条独立拷贝 ops（避免共享可变 ManualRegions）
+            # 每条独立还原 ops（regions/crop 经 dict 拷贝，不共享可变对象）
             ops = revive_ops({
                 "remove_watermark_mode": ops_template.remove_watermark_mode,
-                "watermark_regions": None,
+                "watermark_regions": wm_regions,
                 "remove_subtitle_mode": ops_template.remove_subtitle_mode,
-                "subtitle_regions": None,
-                "crop_rect": ({"x": ops_template.crop_rect.x,
-                               "y": ops_template.crop_rect.y,
-                               "w": ops_template.crop_rect.w,
-                               "h": ops_template.crop_rect.h}
-                              if ops_template.crop_rect else None),
+                "subtitle_regions": sub_regions,
+                "crop_rect": ({"x": crop.x, "y": crop.y,
+                               "w": crop.w, "h": crop.h} if crop else None),
                 "aspect_target": ops_template.aspect_target,
                 "aspect_strategy": ops_template.aspect_strategy,
                 "strip_audio": ops_template.strip_audio,

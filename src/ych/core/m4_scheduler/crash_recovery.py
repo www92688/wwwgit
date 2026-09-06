@@ -39,7 +39,14 @@ class CrashRecovery:
         for drow in self._daos.downloads.list_by_status("running"):
             assert isinstance(drow, DownloadTaskRow)
             self._daos.downloads.update_state(drow.id, "interrupted")
-            if drow.resume_state:
+            started = bool(drow.resume_state) or (drow.progress or 0) > 0
+            if not started:
+                # 并发闸门排队中崩溃：从未开始，直接重排队（无需续传状态）
+                if resume_cb is not None:
+                    resume_cb(drow.id, drow.video_meta, drow.keyword)
+                    summary.resumed_downloads += 1
+                    logger.info("download %s (never started) requeued", drow.id)
+            elif drow.resume_state:
                 if resume_cb is not None:
                     resume_cb(drow.id, drow.video_meta, drow.keyword)
                     summary.resumed_downloads += 1
@@ -65,12 +72,28 @@ class CrashRecovery:
                 reason="软件中断，请重新处理",
                 code="TASK004",
                 task_type=prow.task_type,
-                payload={"type": prow.task_type,
-                         "data": {"items": [{"src": prow.src_path}]}},
+                payload=self._rebuild_payload(prow),
             )
             summary.moved_to_fail += 1
             logger.info("process %s moved to fail list", prow.id)
 
         return summary
+
+    @staticmethod
+    def _rebuild_payload(prow: ProcessTaskRow) -> dict[str, object]:
+        """优先用 params 里存的全量 data 重建（一键重新处理保留全部参数）；
+        旧版行 params 为空时退化为仅含 src 的最小 payload。"""
+        import json
+
+        if prow.params:
+            try:
+                data = json.loads(prow.params)
+                if isinstance(data, dict) and data:
+                    return {"type": prow.task_type, "data": data}
+            except json.JSONDecodeError:
+                logger.warning("process %s params 反序列化失败，退化为最小 payload",
+                               prow.id)
+        return {"type": prow.task_type,
+                "data": {"items": [{"src": prow.src_path}]}}
 
 

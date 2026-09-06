@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -122,10 +123,17 @@ class PlatformPlugin(ABC):
         on_progress: ProgressFn | None,
         resume: ResumeState | None,
         token: CancellationToken | None,
+        on_state: Callable[[ResumeState], None] | None = None,
     ) -> ResumeState:
-        """默认下载实现 = S4 download_stream 直链流式（支持 Range 续传）。"""
+        """默认下载实现 = S4 download_stream 直链流式（支持 Range 续传）。
+
+        on_state：周期性回调当前 ResumeState，调用方据此持久化断点。
+        """
         self._rate_acquire()
-        return self._http.download_stream(meta.download_url, dest_part, resume, on_progress, token)
+        return self._http.download_stream(
+            meta.download_url, dest_part, resume, on_progress, token,
+            on_state=on_state,
+        )
 
     # ---- 子类共用工具 ----
     def _rate_acquire(self) -> None:
@@ -199,5 +207,6 @@ class SkeletonPlugin(PlatformPlugin):
         on_progress: ProgressFn | None,
         resume: ResumeState | None,
         token: CancellationToken | None,
+        on_state: Callable[[ResumeState], None] | None = None,
     ) -> ResumeState:
         raise AppError(ERR_PLG_UNAVAILABLE, self.NOT_OPEN_MSG)

@@ -65,6 +65,39 @@ class ResultList(QWidget):
             note.setFlags(note.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
             self.list.addItem(note)
 
+    def clear_results(self) -> None:
+        """新一轮搜索开始前清空上一轮结果。"""
+        self.list.clear()
+        self.keyword = ""
+
+    def append_results(self, metas: list[VideoMeta], keyword: str,
+                       unavailable: list[tuple[str, str]] | None = None) -> None:
+        """批量搜索逐关键词追加（不 clear）；暂不可用提示合并去重。"""
+        self.keyword = keyword
+        for meta in metas:
+            item = QListWidgetItem(self._card_text(meta))
+            item.setData(Qt.ItemDataRole.UserRole, meta)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            self.list.addItem(item)
+        if not unavailable:
+            return
+        pids = [pid for pid, _r in unavailable]
+        for i in range(self.list.count() - 1, -1, -1):
+            item = self.list.item(i)
+            if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                break
+            text = item.text()
+            if text.startswith("暂不可用平台："):
+                merged = list(dict.fromkeys(
+                    text.removeprefix("暂不可用平台：").split("、") + pids
+                ))
+                item.setText("暂不可用平台：" + "、".join(merged))
+                return
+        note = QListWidgetItem("暂不可用平台：" + "、".join(pids))
+        note.setFlags(note.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+        self.list.addItem(note)
+
     @staticmethod
     def _card_text(meta: VideoMeta) -> str:
         title = meta.title or meta.video_key

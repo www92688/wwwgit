@@ -18,9 +18,8 @@ from ych.services.s5_base.log_service import LogService
 )
 def test_sanitize_table(raw: str, expected: str) -> None:
     assert LogService.sanitize(raw) == expected
-def test_setup_creates_rotating_log(tmp_path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    LogService.setup("DEBUG")
+def test_setup_creates_rotating_log(tmp_path) -> None:
+    LogService.setup("DEBUG", log_dir=tmp_path / "logs")
     logging.getLogger("ych.s5.test").debug("hello log")
     for h in logging.getLogger().handlers:
         h.flush()

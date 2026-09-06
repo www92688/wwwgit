@@ -214,7 +214,7 @@ class LocalProvider:
         pw, ph = x1 - x0 + 1, y1 - y0 + 1
 
         if pw < _SMALL_PATCH_PX or ph < _SMALL_PATCH_PX:
-            return cv2.inpaint(frame, mask, 3, cv2.INPAINT_TELEA).astype(np.uint8).astype(np.uint8)
+            return cv2.inpaint(frame, mask, 3, cv2.INPAINT_TELEA).astype(np.uint8)
 
         try:
             sess = self._registry.session("inpaint")

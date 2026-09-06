@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from ych.core.m3_dedup.techniques.registry import TechniqueRegistry
     from ych.core.m4_scheduler.task_scheduler import TaskScheduler
     from ych.core.m5_library.archive_service import ArchiveService
+    from ych.core.m5_library.scan_indexer import ScanIndexer
     from ych.core.m5_library.workdir_manager import WorkDirManager
     from ych.services.s1_media.ffmpeg_runner import FFmpegRunner
     from ych.services.s1_media.frame_extractor import FrameExtractor
@@ -142,6 +143,16 @@ class AppContext:
                 self.workdirs(), self.config(), daos.assets, daos.categories,
             )
         return cast("ArchiveService", self._cache_cast("archive"))
+
+    def scan_indexer(self) -> ScanIndexer:
+        """工作目录增量扫描（素材索引的拾遗入口：手动放入的文件也能被索引）。"""
+        if "scan_indexer" not in self._cache:
+            from ych.core.m5_library.scan_indexer import ScanIndexer
+
+            self._cache["scan_indexer"] = ScanIndexer(
+                self.workdirs(), self.daos().assets, self.prober(),
+            )
+        return cast("ScanIndexer", self._cache_cast("scan_indexer"))
 
     # ---- S1/S2 ----
     def ffmpeg_runner(self) -> FFmpegRunner:
@@ -280,6 +291,7 @@ class AppContext:
 
             self._cache["feats_m3"] = FeatureExtractService(
                 self.prober(), self.frame_extractor(), self.provider(),
+                max_frames=int(self.config().get_typed("feature_max_frames", int)),
             )
         return cast("FeatureExtractService", self._cache_cast("feats_m3"))
 
@@ -398,6 +410,7 @@ class AppContext:
         return cast(Any, self._cache_cast("fail_manager"))
 
     def _handle_dedup(self, task: Any) -> Any:
+        from ych.common.cancellation import SkippedSignal, TaskCanceled
         from ych.core.m4_scheduler.task_scheduler import TaskResult
 
         payload: Any = task.payload
@@ -405,7 +418,8 @@ class AppContext:
         outputs: list[str] = []
         failed = skipped = 0
         token = getattr(task, "token", None)
-        before = after = None
+        before_pct: list[float] = []
+        after_pct: list[float] = []
         for raw in items:
             src = str(raw.get("src"))
             params = list(raw.get("technique_params") or [])
@@ -414,17 +428,27 @@ class AppContext:
                     Path(src), params, None, token,
                 )
                 outputs.append(str(result.out_path))
-                before, after = result.before_pct, result.after_pct
+                if result.before_pct is not None:
+                    before_pct.append(result.before_pct)
+                if result.after_pct is not None:
+                    after_pct.append(result.after_pct)
+            except TaskCanceled:
+                # 用户取消：上抛交 TaskWorker 置 canceled，剩余条目不再计失败
+                raise
+            except SkippedSignal:
+                skipped += 1
+                continue
             except Exception as exc:
                 code = getattr(exc, "code", "")
-                if code == "TASK004" or isinstance(exc, __import__(
-                        "ych.common.cancellation", fromlist=["SkippedSignal"]).SkippedSignal):
+                if code == "TASK004":
                     skipped += 1
                     continue
                 failed += 1
                 self._fail_manager().record(
                     task, exc if isinstance(exc, Exception) else RuntimeError(str(exc)))
-        first = outputs[0] if len(outputs) == 1 else (outputs[0] if outputs else None)
+        first = outputs[0] if outputs else None
+        before = round(sum(before_pct) / len(before_pct), 1) if before_pct else None
+        after = round(sum(after_pct) / len(after_pct), 1) if after_pct else None
         return TaskResult(
             summary={"outputs": outputs, "failed": failed, "skipped": skipped,
                      "before_pct": before, "after_pct": after},

@@ -1,6 +1,7 @@
 # 下载队列（详设 12.3）：limit 截断 / 并发闸门 / 断点续传 / 归档落盘
 from __future__ import annotations
 
+import inspect
 import logging
 import threading
 import time
@@ -48,6 +49,7 @@ class DownloadManager(QObject):
         self._config = config
         concurrency = max(1, int(config.get_typed("download_concurrency", int)))
         self.semaphore: threading.BoundedSemaphore = threading.BoundedSemaphore(concurrency)
+        self._on_state_ok: dict[type, bool] = {}
         scheduler.register_handler("download", self.handle_one)
 
     # ---- 入队（详设 12.3 enqueue_downloads）----
@@ -124,8 +126,24 @@ class DownloadManager(QObject):
                 self.item_updated.emit(row_id or -1, "running", ratio, "")
                 self._sched.emit_progress(task.task_id, ratio)
 
+            def on_resume_state(state: object) -> None:
+                """断点状态周期性落库：崩溃重启后 download_task 行可续传。"""
+                if row_id is None:
+                    return
+                from ych.common.schemas import ResumeState
+
+                assert isinstance(state, ResumeState)
+                self._daos.downloads.update_state(row_id, "running", resume=state)
+
             logger.info("开始下载 %s/%s", meta.plugin_id, meta.video_key)
-            state = plugin.download(meta, temp_base, on_progress, resume, task.token)
+            # 第三方自定义 download 可能是旧的 5 参签名：不接受 on_state
+            # 时优雅降级（仅失去崩溃续传落库，下载不受影响）
+            if self._accepts_on_state(plugin):
+                state = plugin.download(meta, temp_base, on_progress, resume,
+                                        task.token, on_state=on_resume_state)
+            else:
+                state = plugin.download(meta, temp_base, on_progress, resume,
+                                        task.token)
             # 续传时实际数据落在 resume.temp_path（S4 契约），以返回态为准
             final_temp = (
                 Path(state.temp_path) if state and state.temp_path
@@ -145,3 +163,19 @@ class DownloadManager(QObject):
             if token is not None:
                 token.check()
             time.sleep(0.02)
+
+    def _accepts_on_state(self, plugin: object) -> bool:
+        """插件 download 是否支持 on_state 关键字（按类型缓存探测结果）。"""
+        cls = type(plugin)
+        cached = self._on_state_ok.get(cls)
+        if cached is None:
+            try:
+                params = inspect.signature(plugin.download).parameters  # type: ignore[attr-defined]
+                cached = any(
+                    p.name == "on_state" or p.kind is inspect.Parameter.VAR_KEYWORD
+                    for p in params.values()
+                )
+            except (TypeError, ValueError):
+                cached = False
+            self._on_state_ok[cls] = cached
+        return cached

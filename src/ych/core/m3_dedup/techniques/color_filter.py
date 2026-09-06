@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import ClassVar
 
+from ych.common.fsutil import bundle_data_root
 from ych.core.m3_dedup.techniques.base import ClipContext, DedupTechnique, ParamField, as_float
 
 logger = logging.getLogger("ych.m3")
 
-_LUT_DIR = Path(__file__).resolve().parents[4] / "runtime" / "luts"
+# 仓库根（源码运行）或 _MEIPASS（打包）下的 runtime/luts
+_LUT_DIR = bundle_data_root() / "runtime" / "luts"
 
 _PRESET_FALLBACK = {
     # .cube 缺失时的近似退化（暖/冷偏色、胶片降饱和提对比）
@@ -18,6 +19,13 @@ _PRESET_FALLBACK = {
     "cool": ["colorbalance=rm=-0.15:gm=0.0:bm=0.15"],
     "film": ["eq=saturation=0.9:contrast=1.08"],
 }
+
+
+def _lut_filter_arg(lut: object) -> str:
+    """lut3d 的 file= 参数值：Windows 盘符冒号必须按滤镜图语法转义
+    （file=D:/x.cube 会被拆成两个选项导致整条滤镜链解析失败）。"""
+    posix = str(lut).replace("\\", "/")
+    return posix.replace(":", "\\\\:")
 
 
 class ColorFilterTechnique(DedupTechnique):
@@ -43,7 +51,7 @@ class ColorFilterTechnique(DedupTechnique):
         if preset != "none":
             lut = _LUT_DIR / f"{preset}.cube"
             if lut.exists():
-                ctx.vf_filters.append(f"lut3d=file={lut.as_posix()}")
+                ctx.vf_filters.append(f"lut3d=file={_lut_filter_arg(lut)}")
             else:
                 logger.warning("LUT 缺失，%s 退化为 colorbalance 近似", lut)
                 ctx.vf_filters.extend(_PRESET_FALLBACK.get(preset, []))

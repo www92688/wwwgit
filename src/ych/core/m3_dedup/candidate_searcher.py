@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ych.common.cancellation import CancellationToken, ProgressFn
+from ych.common.cancellation import CancellationToken, ProgressFn, TaskCanceled
 from ych.common.errors import ERR_PLG_UNAVAILABLE, AppError
 from ych.common.schemas import (
     CompareReport,
@@ -134,27 +134,29 @@ class CandidateSearcher:
         try:
             feat_b = self._extract(path, token)
             target.scores = self._calc.compare(feat_a, feat_b, weights)
-        except AppError as exc:
+        except TaskCanceled:
+            raise
+        except Exception as exc:   # 单个坏参考文件不拖垮整轮对比
             target.status = "unavailable"
-            target.status_reason = exc.message
+            target.status_reason = str(exc)
             logger.warning("本地参考提取失败 %s：%s", path.name, exc)
         return target
 
     # ---- auto 平台候选 ----
     def _keyword_from_archive(self, src: Path) -> str | None:
-        """归档路径 <workdir>/<大类>/<关键词>/<日期>/file.mp4 → 二级关键词。
+        """归档路径 <workdir>/<大类>/<关键词>/<日期>/file.mp4 → 关键词。
 
-        已去重/ 镜像层级（已去重/<大类>/<关键词>/...）同样成立。
+        parts=(大类,关键词,日期,文件名)，关键词取 parts[-3]（日期是 [-2]）。
+        已去重镜像层（已去重/<大类>/<关键词>/...）先剥掉"已去重"段。
         """
         try:
             rel = Path(src).relative_to(self._workdirs.workdir())
         except (ValueError, AppError):
             return None
-        parts = rel.parts
-        if len(parts) >= 2:
-            candidate = parts[-2]
-            return candidate or None
-        return parts[0] if parts else None
+        parts = tuple(p for p in rel.parts if p != "已去重")
+        if len(parts) >= 3:
+            return parts[-3] or None
+        return None
 
     def _compare_plugins(self) -> list[_PluginLike]:
         ids = set(REQUIRED_PLATFORMS) | set(OPTIONAL_PLATFORMS)
@@ -184,6 +186,8 @@ class CandidateSearcher:
                 continue
             try:
                 metas = p.search(keyword, filters, k, token)
+            except TaskCanceled:
+                raise
             except Exception as exc:
                 logger.warning("平台 %s 搜索失败：%s", p.id, exc)
                 unavailable.append(p.id)
@@ -205,6 +209,8 @@ class CandidateSearcher:
         try:
             local = self._cache.fetch_or_download(meta, token)
             target.local_path = str(local)
+        except TaskCanceled:
+            raise
         except Exception as exc:
             target.status = "skipped"
             target.status_reason = f"下载失败：{exc}"

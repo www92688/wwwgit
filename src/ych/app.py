@@ -13,10 +13,11 @@ from ych.common.errors import AppError
 def main() -> int:
     from PySide6.QtWidgets import QApplication
 
-    from ych.context import build_context
+    from ych.context import build_context, user_data_dir
     from ych.services.s5_base.log_service import LogService
 
-    LogService.setup()
+    # 日志写用户数据目录（打包后 CWD 可能不可写，禁用相对路径）
+    LogService.setup(log_dir=user_data_dir() / "logs")
     logger = logging.getLogger("ych.app")
     logger.info("应用启动")
 
@@ -120,7 +121,20 @@ def main() -> int:
         window.add_page(page)
 
     # 预处理/去重工作台素材：启动加载一次，之后下载成功即自动刷新
-    wire_asset_refresh(ctx, preprocess, dedup, dm)
+    refresh_assets = wire_asset_refresh(ctx, preprocess, dedup, dm)
+
+    # 崩溃恢复：扫描遗留 running 行（下载续传重排队 / 处理任务转失败列表）。
+    # 必须在 download handler 注册（ctx.download_manager() 已构造）之后执行
+    try:
+        summary = ctx.scheduler().recover_on_startup()
+        if summary.resumed_downloads or summary.moved_to_fail:
+            logger.info(
+                "崩溃恢复：续传重排 %d 条，转失败列表 %d 条",
+                summary.resumed_downloads, summary.moved_to_fail,
+            )
+            refresh_assets()
+    except Exception:
+        logger.exception("崩溃恢复失败（不影响启动）")
 
     # 处理类任务反馈：完成/失败 Toast，分析报告回填去重页
     toast = wire_task_feedback(ctx, ctx.scheduler(), dedup, window, compare_srcs)
@@ -242,8 +256,12 @@ def wire_task_feedback(
 
 def wire_asset_refresh(
     ctx: Any, preprocess: Any, dedup: Any, dm: Any,
-) -> None:
-    """把 raw 素材喂给预处理/去重工作台：启动一次 + 下载成功 + 换工作目录。"""
+) -> Callable[[], None]:
+    """把 raw 素材喂给预处理/去重工作台：启动一次 + 下载成功 + 换工作目录。
+
+    同时接线工作目录增量扫描（后台线程）：手动放入的文件也能进素材索引，
+    扫描完成后刷新两工作台列表。返回 refresh 供崩溃恢复后复用。
+    """
 
     def refresh() -> None:
         try:
@@ -258,9 +276,32 @@ def wire_asset_refresh(
         if state == "success":
             refresh()
 
+    def run_scan() -> None:
+        """后台线程增量扫描工作目录；完成信号回主线程后刷新列表。"""
+        import threading
+
+        indexer = ctx.scan_indexer()
+
+        def _work() -> None:
+            try:
+                indexer.incremental_scan()
+            except Exception as exc:
+                logging.getLogger("ych.app").warning("素材增量扫描失败：%s", exc)
+
+        threading.Thread(target=_work, daemon=True,
+                         name="ych-asset-scan").start()
+
+    def on_scan_finished(_added: int) -> None:
+        # ScanIndexer 为主线程 QObject，信号经队列回主线程
+        refresh()
+
     refresh()
     dm.item_updated.connect(on_updated)
     ctx.workdirs().workdir_changed.connect(lambda _path: refresh())
+    ctx.workdirs().workdir_changed.connect(lambda _path: run_scan())
+    ctx.scan_indexer().scan_finished.connect(on_scan_finished)
+    run_scan()          # 启动即扫一遍（拾遗：手动放入工作目录的素材）
+    return refresh
 
 
 def _submit_compare(
