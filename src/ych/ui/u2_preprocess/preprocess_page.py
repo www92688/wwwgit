@@ -1,7 +1,8 @@
 # 预处理工作台（U2）：素材树 + 处理项面板 + 框选画布 + 开始按钮
 from __future__ import annotations
 
-from typing import Any, Callable, Protocol
+from collections.abc import Callable
+from typing import Any, Protocol
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
@@ -153,7 +154,9 @@ class PreprocessPage(QWidget):
             return
         self.btn_preview.setEnabled(False)
         src = srcs[0]
-        worker = LlmWorker(lambda: self._frame_loader(src))
+        loader = self._frame_loader
+        assert loader is not None
+        worker = LlmWorker(lambda: loader(src))
         self._preview_worker = worker
         worker.done.connect(self._on_preview_done)      # 绑定方法→回 UI 线程
         worker.failed.connect(self._on_preview_failed)

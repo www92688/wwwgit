@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from ych.services.s1_media.frame_extractor import FrameExtractor
     from ych.services.s1_media.probe_service import ProbeService
     from ych.services.s2_ai.ai_gateway import AiGateway
+    from ych.services.s2_ai.model_downloader import ModelDownloader
     from ych.services.s2_ai.provider import InferenceProvider
     from ych.services.s3_db.daos import DaosBundle
     from ych.services.s3_db.database import Database
@@ -174,6 +175,13 @@ class AppContext:
             registry = ModelRegistry()
             self._cache["provider"] = LocalProvider(registry)
         return cast("InferenceProvider", self._cache_cast("provider"))
+
+    def model_downloader(self) -> ModelDownloader:
+        if "model_downloader" not in self._cache:
+            from ych.services.s2_ai.model_downloader import ModelDownloader
+
+            self._cache["model_downloader"] = ModelDownloader(self.http())
+        return cast("ModelDownloader", self._cache_cast("model_downloader"))
 
     # ---- M4 调度 ----
     def scheduler(self) -> TaskScheduler:

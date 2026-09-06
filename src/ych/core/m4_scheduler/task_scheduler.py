@@ -163,6 +163,17 @@ class TaskScheduler(QObject):
             raise AppError(ERR_TASK_NOT_FOUND, f"任务不存在：{task_id}")
         task.token.cancel()
 
+    def cancel_by_row(self, row_id: int) -> int:
+        """按 download_task/process_task 行 id 取消进行中任务，返回取消数。"""
+        n = 0
+        for task in self._tasks.values():
+            if task.db_row_id == row_id and task.state in ("pending", "running"):
+                task.token.cancel()
+                n += 1
+        if n == 0:
+            raise AppError(ERR_TASK_NOT_FOUND, f"行 {row_id} 没有进行中的任务")
+        return n
+
     # ---- 失败列表重建 ----
     def submit_from_fail_record(self, record_id: int) -> str:
         payload = self._fails.rebuild_payload(record_id)

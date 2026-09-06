@@ -71,6 +71,27 @@ class HttpClient(QObject):
         super().__init__()
         self._config = config
         self._session = self._build_session()
+        # 运行时改代理设置即时生效（无需重启）
+        config.changed.connect(self._on_config_changed)
+
+    def _on_config_changed(self, key: str, _value: object) -> None:
+        if key in ("proxy_enabled", "proxy_host", "proxy_port"):
+            self._apply_proxy()
+
+    def _apply_proxy(self, session: requests.Session | None = None) -> None:
+        """代理配置 → session；__init__ 传入新会话，运行时改动复用现有会话。"""
+        s = session if session is not None else self._session
+        if self._config.get_typed("proxy_enabled", bool):
+            host = str(self._config.get("proxy_host"))
+            port_raw = self._config.get("proxy_port")
+            port = port_raw if isinstance(port_raw, int) else 0
+            if host and port:
+                proxy = f"http://{host}:{port}"
+                s.proxies = {"http": proxy, "https": proxy}
+                logger.info("代理已更新：%s:%s", host, port)
+                return
+        s.proxies = {}
+        logger.info("代理已停用")
 
     # ---- 会话构建 ----
     def _build_session(self) -> requests.Session:
@@ -89,13 +110,7 @@ class HttpClient(QObject):
         session.mount("https://", adapter)
         session.mount("http://", adapter)
         session.headers["User-Agent"] = f"YuanChongGou/{ych.__version__}"
-        if self._config.get_typed("proxy_enabled", bool):
-            host = str(self._config.get("proxy_host"))
-            port_raw = self._config.get("proxy_port")
-            port = port_raw if isinstance(port_raw, int) else 0
-            if host and port:
-                proxy = f"http://{host}:{port}"
-                session.proxies = {"http": proxy, "https": proxy}
+        self._apply_proxy(session)
         return session
 
     @property

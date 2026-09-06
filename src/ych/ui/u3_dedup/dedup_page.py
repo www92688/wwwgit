@@ -77,6 +77,10 @@ class DedupPage(QWidget):
             radio.setProperty("preset_id", pid)
             self.radio_group.addButton(radio)
             radio.setChecked(pid == "mid")
+            # 点击档位立即套用对应预设，而非等"套用预设"按钮
+            radio.toggled.connect(
+                lambda on, p=pid: self._apply_preset() if on else None,
+            )
             right_box.addWidget(radio)
             self._preset_radios[pid] = radio
         self.editor = SchemeEditor(self._registry)

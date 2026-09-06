@@ -9,7 +9,12 @@ from dataclasses import dataclass, field
 import pytest
 
 from ych.common.cancellation import TaskCanceled
-from ych.common.errors import ERR_MED_FORMAT_UNSUPPORTED, ERR_NET_TIMEOUT, AppError
+from ych.common.errors import (
+    ERR_MED_FORMAT_UNSUPPORTED,
+    ERR_NET_TIMEOUT,
+    ERR_TASK_NOT_FOUND,
+    AppError,
+)
 from ych.common.schemas import TaskPayload, VideoMeta
 from ych.core.m4_scheduler.task_scheduler import (
     ManagedTask,
@@ -231,3 +236,28 @@ def test_task_done_signal_carries_type_state_summary(env) -> None:
     tid = env["sched"].submit(payload)
     assert _wait_states(env, tid, {"success"}) == "success"
     assert done == [("preprocess", "success", {"fake": True})]
+
+
+def test_cancel_by_row_id(env) -> None:
+    """队列「取消」入口：按 db 行 id 取消进行中任务。"""
+    started = threading_event()
+
+    def hook(task: ManagedTask) -> None:
+        started.set()
+        for _ in range(120):
+            if task.token.cancelled:
+                raise TaskCanceled("用户取消")
+            time.sleep(0.02)
+
+    handler = SyncFakeHandler(hook=hook)
+    env["sched"].register_handler("preprocess", handler)
+    tid = env["sched"].submit(TaskPayload(
+        type="preprocess", data={"items": [{"src": "d.mp4"}]}))
+    row_id = env["sched"]._tasks[tid].db_row_id
+    assert row_id is not None
+    started.wait(timeout=5)
+    assert env["sched"].cancel_by_row(row_id) == 1
+    assert _wait_states(env, tid, {"canceled"}, timeout_s=10) == "canceled"
+    with pytest.raises(AppError) as exc:
+        env["sched"].cancel_by_row(999999)
+    assert exc.value.code == ERR_TASK_NOT_FOUND

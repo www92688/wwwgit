@@ -2,7 +2,6 @@
 import numpy as np
 import pytest
 
-from ych.common.errors import ERR_AI_MODEL_MISSING, AppError
 from ych.services.s2_ai.local_provider import LocalProvider
 from ych.services.s2_ai.model_registry import ModelRegistry
 
@@ -23,15 +22,33 @@ def test_detect_watermark_degrades_without_model(provider_no_models) -> None:
     assert out == [[]]
 
 
-def test_detect_subtitle_raises_ai001(provider_no_models) -> None:
-    with pytest.raises(AppError) as exc:
-        provider_no_models.detect_subtitle([(0.0, make_frame())])
-    assert exc.value.code == ERR_AI_MODEL_MISSING
+def test_detect_subtitle_classical_fallback(provider_no_models) -> None:
+    # 模型缺失 → 经典底部文字带检测兜底：底部高对比横条应被检出
+    frame = make_frame()
+    frame[40:46, 8:56] = 255          # 底部白条（模拟硬编码字幕）
+    out = provider_no_models.detect_subtitle([(0.0, frame)])
+    assert len(out) == 1
+    assert out[0], "经典字幕检测应产出候选框"
+    det = out[0][0]
+    assert det.bbox.y + det.bbox.h / 2 > 0.55   # 位于底部文字带
+    # 纯黑帧 → 无检出
+    assert provider_no_models.detect_subtitle([(0.0, make_frame())]) == [[]]
 
 
-def test_embed_frames_raises_ai001(provider_no_models) -> None:
-    with pytest.raises(AppError):
-        provider_no_models.embed_frames([(0.0, make_frame())])
+def test_embed_frames_classical_fallback(provider_no_models) -> None:
+    # CLIP 缺失 → 经典 512 维特征：确定性、L2 归一、区分不同画面
+    p = provider_no_models
+    f1 = make_frame()
+    f1[:, :, 0] = 200                 # 蓝色画面
+    f2 = make_frame()
+    f2[:, :, 2] = 200                 # 红色画面
+    v1 = p.embed_frames([(0.0, f1), (1.0, f1)])
+    v2 = p.embed_frames([(0.0, f2)])
+    assert v1.shape == (2, 512) and v2.shape == (1, 512)
+    assert np.allclose(v1[0], v1[1])            # 同帧 → 同向量（确定性）
+    assert not np.allclose(v1[0], v2[0])        # 不同画面 → 不同向量
+    norms = np.linalg.norm(v1, axis=1)
+    assert np.allclose(norms, 1.0, atol=1e-5)   # 已归一化
 
 
 def test_inpaint_small_region_telea_fallback(provider_no_models) -> None:

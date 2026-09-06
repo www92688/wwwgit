@@ -98,6 +98,10 @@ class ResultList(QWidget):
                 item.setCheckState(state)
 
     def _emit_download(self) -> None:
+        from ych.ui.u6_common.toast import Toast
+
         metas = self.checked_metas()
-        if metas:
-            self.download_requested.emit(metas, self.keyword)
+        if not metas:
+            Toast.show_message(self, "请先勾选要下载的结果")
+            return
+        self.download_requested.emit(metas, self.keyword)

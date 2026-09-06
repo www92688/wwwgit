@@ -36,16 +36,18 @@ class AssetTree(QTreeWidget):
     ) -> None:
         for i in range(item.childCount()):
             child = item.child(i)
+            assert child is not None
             child.setCheckState(0, state)
             self._apply_to_children(child, state)
 
     def _sync_ancestors(self, item: QTreeWidgetItem) -> None:
         parent = item.parent()
         while parent is not None:
-            states = [
-                parent.child(i).checkState(0)
-                for i in range(parent.childCount())
-            ]
+            states = []
+            for i in range(parent.childCount()):
+                child = parent.child(i)
+                assert child is not None
+                states.append(child.checkState(0))
             if all(s == Qt.CheckState.Checked for s in states):
                 parent.setCheckState(0, Qt.CheckState.Checked)
             elif all(s == Qt.CheckState.Unchecked for s in states):

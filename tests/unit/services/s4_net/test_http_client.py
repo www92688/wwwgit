@@ -210,3 +210,21 @@ def test_probe_latency_unreachable_returns_none(client) -> None:
         rsps.add(responses.HEAD, "https://x.com", body=requests.ConnectTimeout())
         rsps.add(responses.GET, "https://x.com", body=requests.ConnectTimeout())
         assert client.probe_latency("https://x.com") is None
+
+
+# ---------- 代理热更新 ----------
+def test_proxy_config_hot_reload(memory_config) -> None:
+    """设置页改代理 → 运行中的 HttpClient 即时生效，无需重启。"""
+    client = HttpClient(memory_config)
+    assert client.session.proxies == {}
+
+    memory_config.set("proxy_enabled", True)
+    memory_config.set("proxy_host", "127.0.0.1")
+    memory_config.set("proxy_port", 7897)
+    assert client.session.proxies == {
+        "http": "http://127.0.0.1:7897",
+        "https": "http://127.0.0.1:7897",
+    }
+
+    memory_config.set("proxy_enabled", False)
+    assert client.session.proxies == {}

@@ -212,6 +212,7 @@ def test_capture_open_files_button(qapp, qtbot, tmp_path, monkeypatch) -> None:
     """「查看文件」：正常打开工作目录；未设置目录时提示而非报错。"""
     from PySide6.QtGui import QDesktopServices
     from PySide6.QtWidgets import QMessageBox
+
     from ych.ui.u1_capture.capture_page import CapturePage
 
     opened: list[object] = []
@@ -245,8 +246,9 @@ def test_capture_open_files_button(qapp, qtbot, tmp_path, monkeypatch) -> None:
 
 def test_wire_asset_refresh_feeds_pages(qapp, qtbot) -> None:
     """下载成功信号触发后，预处理/去重工作台应同步到最新素材。"""
-    from PySide6.QtCore import QObject, Signal
     from types import SimpleNamespace
+
+    from PySide6.QtCore import QObject, Signal
 
     from ych.app import wire_asset_refresh
     from ych.services.s3_db.daos import AssetRow
@@ -490,3 +492,20 @@ def test_wire_task_feedback(qapp, qtbot, tmp_path, monkeypatch) -> None:
                         {"outputs": ["o"], "failed": 0, "skipped": 0,
                          "before_pct": 80.0, "after_pct": 12.0})
     assert "80.0% → 12.0%" in captured[-1][0]
+
+
+def test_download_queue_cancel_button(qapp, qtbot) -> None:
+    """队列「取消」：点击发出 row_id；终态后按钮禁用。"""
+    from ych.ui.u1_capture.download_queue_view import DownloadQueueView
+
+    view = DownloadQueueView()
+    qtbot.addWidget(view)
+    cancels: list[int] = []
+    view.cancel_requested.connect(cancels.append)
+    view.add_row_info(7, "pixabay", "sunset river")
+    btn = view._cancel_btns[7]
+    assert btn.isEnabled()
+    btn.click()
+    assert cancels == [7]
+    view.on_item_updated(7, "success", 1.0, "")
+    assert not btn.isEnabled()

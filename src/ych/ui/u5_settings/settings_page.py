@@ -6,7 +6,8 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, Qt
+from PySide6.QtCore import QObject, Qt, QTimer, QUrl
+from PySide6.QtGui import QBrush, QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -22,6 +24,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -37,6 +41,8 @@ _GREEN, _ORANGE, _RED, _GRAY = "#16a34a", "#d97706", "#dc2626", "#6b7280"
 
 if TYPE_CHECKING:
     from PySide6.QtCore import Signal
+
+    from ych.services.s2_ai.model_downloader import ModelSpec
 
     class _ConfigLike(QObject):
         changed: Signal
@@ -61,11 +67,25 @@ if TYPE_CHECKING:
             self, service_id: str, base_url: str, api_key: str | None = None,
         ) -> list[str]: ...
 
+    class _ModelDownloaderLike(QObject):
+        progress: dict[str, float]
+
+        def all_specs(self) -> list[ModelSpec]: ...
+
+        def exists(self, key: str) -> bool: ...
+
+        def size_of(self, key: str) -> int: ...
+
+        def path_of(self, key: str) -> Path: ...
+
+        def download(self, key: str, token: object | None = None) -> Path: ...
+
 else:
     _ConfigLike = QObject
     _I18nLike = QObject
     _NetCheckerLike = QObject
     _AiGatewayLike = QObject
+    _ModelDownloaderLike = QObject
 
 # 素材站（keyring 账户名, 显示名）
 _STOCK_SITES: tuple[tuple[str, str], ...] = (
@@ -86,6 +106,7 @@ class SettingsPage(QWidget):
         net_checker: _NetCheckerLike | None = None,
         ai_gateway: _AiGatewayLike | None = None,
         http: HttpClient | None = None,
+        model_downloader: _ModelDownloaderLike | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -94,6 +115,7 @@ class SettingsPage(QWidget):
         self._net_checker = net_checker
         self._ai_gateway = ai_gateway
         self._http = http
+        self._model_downloader = model_downloader
         self._ai_workers: list[LlmWorker] = []
         self._editing_ai_id: str | None = None     # None=新增，否则为编辑
         self._editing_stock_pid: str = "pexels"
@@ -177,6 +199,42 @@ class SettingsPage(QWidget):
         self._stack.addWidget(self._build_stock_key_page())
         root.addWidget(services_box)
 
+        # ---- AI 模型（状态 / 按需下载）----
+        models_box = QGroupBox(self.tr("AI 模型（去水印 / 去字幕 / 重复度）"))
+        models_lay = QVBoxLayout(models_box)
+        self.model_table = QTableWidget(0, 4)
+        self.model_table.setHorizontalHeaderLabels([
+            self.tr("模型文件"), self.tr("用途"), self.tr("状态"),
+            self.tr("操作"),
+        ])
+        self.model_table.verticalHeader().setVisible(False)
+        self.model_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch,
+        )
+        self.model_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.model_table.setMinimumHeight(160)
+        models_lay.addWidget(self.model_table)
+        models_row = QHBoxLayout()
+        self.model_hint = QLabel("")
+        self.model_hint.setWordWrap(True)
+        self.model_hint.setStyleSheet(f"color: {_GRAY};")
+        btn_open_models = QPushButton(self.tr("打开模型目录"))
+        btn_open_models.setObjectName("secondaryBtn")
+        btn_open_models.clicked.connect(self._open_models_dir)
+        models_row.addWidget(self.model_hint, 1)
+        models_row.addWidget(btn_open_models)
+        models_lay.addLayout(models_row)
+        root.addWidget(models_box)
+
+        self._downloading_key: str | None = None
+        self._worker_keys: dict[QObject, str] = {}
+        self._model_dl_cells: dict[str, QPushButton] = {}
+        self._model_workers: list[LlmWorker] = []
+        self._model_timer = QTimer(self)
+        self._model_timer.setInterval(400)
+        self._model_timer.timeout.connect(self._refresh_model_rows)
+        self._refresh_model_rows()
+
         # ---- 高级 ----
         advanced = QGroupBox(self.tr("高级"))
         form_a = QFormLayout(advanced)
@@ -221,6 +279,100 @@ class SettingsPage(QWidget):
         config.changed.connect(self._on_config_changed)
         self.proxy_check.setChecked(bool(config.get("proxy_enabled")))
         self.readonly_check.setChecked(bool(config.get("readonly_protect_raw")))
+
+    # ================= AI 模型 =================
+    def _refresh_model_rows(self) -> None:
+        """按清单刷新模型状态表；下载中由 QTimer 周期调用。"""
+        if self._model_downloader is None:
+            return
+        dl = self._model_downloader
+        specs = dl.all_specs()
+        if self.model_table.rowCount() != len(specs):
+            self.model_table.setRowCount(len(specs))
+        for row, spec in enumerate(specs):
+            self.model_table.setItem(
+                row, 0, QTableWidgetItem(str(spec.file)),
+            )
+            self.model_table.setItem(
+                row, 1, QTableWidgetItem(str(spec.desc)),
+            )
+            ratio = dl.progress.get(str(spec.key))
+            if dl.exists(str(spec.key)):
+                status = f"✓ 已就绪（{dl.size_of(str(spec.key)) / 1048576:.1f} MB）"
+                color = _GREEN
+            elif ratio is not None:
+                status = f"下载中 {int(ratio * 100)}%"
+                color = "#2563eb"
+            elif not spec.urls:
+                status = self.tr("缺失（无自动下载源，可手动放置文件）")
+                color = _GRAY
+            else:
+                status = self.tr("未下载")
+                color = _ORANGE
+            s_item = QTableWidgetItem(status)
+            s_item.setForeground(QBrush(QColor(color)))
+            self.model_table.setItem(row, 2, s_item)
+            if str(spec.key) not in self._model_dl_cells:
+                btn = QPushButton(self.tr("下载"))
+                btn.setObjectName("secondaryBtn")
+                btn.clicked.connect(
+                    lambda _checked=False, k=str(spec.key):
+                        self._download_model(k),
+                )
+                self.model_table.setCellWidget(row, 3, btn)
+                self._model_dl_cells[str(spec.key)] = btn
+            self._model_dl_cells[str(spec.key)].setEnabled(
+                bool(spec.urls) and self._downloading_key is None,
+            )
+
+    def _download_model(self, key: str) -> None:
+        dl = self._model_downloader
+        if dl is None or self._downloading_key is not None:
+            return
+        from ych.common.cancellation import CancellationToken
+
+        token = CancellationToken()
+        self._downloading_key = key
+        self.model_hint.setText(
+            self.tr("开始下载，走「网络」分组里配置的代理（若有）…"),
+        )
+        self._refresh_model_rows()
+        worker = LlmWorker(lambda: dl.download(key, token))
+        self._model_workers.append(worker)
+        self._worker_keys[worker] = key
+        worker.done.connect(self._on_model_done)        # 绑定方法→回 UI 线程
+        worker.failed.connect(self._on_model_failed)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+        self._model_timer.start()
+
+    def _on_model_done(self, _result: object) -> None:
+        dl = self._model_downloader
+        key = self._worker_keys.pop(self.sender(), self._downloading_key or "")
+        self._downloading_key = None
+        self._model_timer.stop()
+        self._refresh_model_rows()
+        if dl is not None:
+            name = Path(str(dl.path_of(key))).name
+            self.model_hint.setText(
+                self.tr(f"{name} 下载完成并通过契约校验，即刻可用（无需重启）。"),
+            )
+
+    def _on_model_failed(self, msg: str) -> None:
+        key = self._worker_keys.pop(self.sender(), self._downloading_key or "?")
+        self._downloading_key = None
+        self._model_timer.stop()
+        self._refresh_model_rows()
+        self.model_hint.setText(
+            self.tr(f"{key} 下载失败：{msg}（可检查网络/代理后重试）"),
+        )
+
+    def _open_models_dir(self) -> None:
+        if self._model_downloader is None:
+            return
+        model_dir = self._model_downloader.path_of("subtitle").parent
+        model_dir.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(model_dir)))
 
     # ================= 服务列表页 =================
     def _build_service_list_page(self) -> QWidget:

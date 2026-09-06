@@ -1,8 +1,9 @@
 # 采集工作台（U1）：关键词栏 / 平台分区 / 筛选 / 结果列表 / 下载队列
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -80,6 +81,7 @@ class CapturePage(QWidget):
         self.keyword_edit.setPlaceholderText(
             self.tr("输入关键词，多个用逗号分隔")
         )
+        self.keyword_edit.returnPressed.connect(self._on_search)
         btn_search = QPushButton(self.tr("搜索"))
         btn_search.clicked.connect(self._on_search)
         self.btn_ai_expand = QPushButton(self.tr("AI 扩展"))
@@ -186,8 +188,13 @@ class CapturePage(QWidget):
             self.keyword_edit.setText(text)
 
     def _on_search(self) -> None:
+        from ych.ui.u6_common.toast import Toast
+
         raw = self.keyword_edit.text().strip()
-        if not raw or self._coordinator is None:
+        if not raw:
+            Toast.show_message(self, "请先输入关键词再搜索")
+            return
+        if self._coordinator is None:
             return
         keywords = [k.strip() for k in raw.replace("，", ",").split(",") if k.strip()]
         selected = [
@@ -196,6 +203,10 @@ class CapturePage(QWidget):
             for pid, cb in group.items()
             if cb.isChecked()
         ]
+        if not selected:
+            Toast.show_message(self, "请至少勾选一个采集平台")
+            return
+        Toast.show_message(self, f"正在搜索：{'、'.join(keywords)} …")
         self._coordinator.search_multi(
             keywords, self.filter_panel.to_filters(), 30, platform_ids=selected,
         )

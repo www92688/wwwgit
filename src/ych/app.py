@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, cast
+
+from ych.common.errors import AppError
 
 
 def main() -> int:
@@ -65,6 +68,14 @@ def main() -> int:
         capture.queue_view.add_row_info,
     )
 
+    def _on_cancel_download(row_id: int) -> None:
+        try:
+            ctx.scheduler().cancel_by_row(int(row_id))
+        except AppError as exc:
+            toast(f"取消失败：{exc.message}", error=True)
+
+    capture.queue_view.cancel_requested.connect(_on_cancel_download)
+
     # 国外平台总开关：发出请求后异步探测外网，可达才允许开启（不阻塞界面）
     from ych.ui.u6_common.llm_worker import LlmWorker
 
@@ -102,6 +113,7 @@ def main() -> int:
         net_checker=cast(Any, ctx.net_checker()),
         ai_gateway=cast(Any, ctx.ai_gateway()),
         http=ctx.http(),
+        model_downloader=cast(Any, ctx.model_downloader()),
     )
 
     for page in (capture, preprocess, dedup, failures, settings):
@@ -116,6 +128,9 @@ def main() -> int:
     dedup.analyze_requested.connect(lambda _srcs: toast("已提交重复度分析"))
     dedup.dedup_requested.connect(
         lambda srcs, _params: toast(f"已提交 {len(srcs)} 条去重任务"))
+    coordinator.search_failed.connect(
+        lambda _kw, msg: toast(f"搜索失败：{msg}", error=True, timeout_ms=8000),
+    )
 
     window.show()
     if not window.ensure_workdir():
@@ -162,7 +177,7 @@ def _load_preview_frame(ctx: Any, src: str) -> str:
 def wire_task_feedback(
     ctx: Any, sched: Any, dedup: Any, parent: Any,
     compare_srcs: dict[str, list[str]],
-) -> Callable[[str, bool], None]:
+) -> Callable[..., None]:
     """处理类任务（preprocess/dedup/compare）终态反馈：Toast + 报告回填。
 
     task_done 由工作线程发出，经 QObject 桥接收者排队回主线程再弹 Toast。
@@ -212,7 +227,10 @@ def wire_task_feedback(
                             dedup.render_report(report)
                     toast(f"重复度分析完成{extra}，已按结果标注推荐档位")
             elif state == "failed":
-                toast(f"{label}失败：{message}", error=True, timeout_ms=8000)
+                extra = ("。可到 设置 → AI 模型 下载所需模型"
+                         if "AI001" in message else "")
+                toast(f"{label}失败：{message}{extra}",
+                      error=True, timeout_ms=8000)
             elif state == "canceled":
                 toast(f"{label}任务已取消")
 

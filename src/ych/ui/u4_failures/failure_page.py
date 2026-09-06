@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ych.ui.u6_common.toast import Toast
+
 _EMPTY_INDEX = QModelIndex()
 
 
@@ -108,14 +110,26 @@ class FailurePage(QWidget):
         return ids
 
     def _reprocess(self) -> None:
-        for rid in self._selected_ids():
+        ids = self._selected_ids()
+        if not ids:
+            Toast.show_message(self, "请先在列表中选中要重新处理的记录")
+            return
+        done = 0
+        for rid in ids:
             try:
                 self._scheduler.submit_from_fail_record(rid)
+                done += 1
             except Exception:
                 continue   # 单条重建失败不阻塞其余（UI 层兜底）
+        Toast.show_message(self, f"已重新提交 {done} 条任务")
         self.refresh()
 
     def _delete_selected(self) -> None:
-        for rid in self._selected_ids():
+        ids = self._selected_ids()
+        if not ids:
+            Toast.show_message(self, "请先在列表中选中要删除的记录")
+            return
+        for rid in ids:
             self._fails.delete(rid)
+        Toast.show_message(self, f"已删除 {len(ids)} 条失败记录")
         self.refresh()

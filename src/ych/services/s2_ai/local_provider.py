@@ -97,8 +97,17 @@ class LocalProvider:
     def detect_subtitle(
         self, frames: list[tuple[float, npt.NDArray[np.uint8]]]
     ) -> list[list[Detection]]:
-        """长边≤960 且边为 32 倍数 → DBNet det → 多边形转最小外接矩形 → 合并。"""
-        sess = self._registry.session("subtitle")   # 缺失抛 AI001（上层路由手动框选）
+        """长边≤960 且边为 32 倍数 → DBNet det → 多边形转最小外接矩形 → 合并。
+
+        模型缺失/损坏（AI001/AI002）降级为经典底部文字带检测，路由与清理照常。
+        """
+        try:
+            sess = self._registry.session("subtitle")
+        except AppError as exc:
+            logger.warning(
+                "字幕模型不可用（%s），降级经典文字带检测", exc.code,
+            )
+            return self._detect_subtitle_classical(frames)
         per_frame: list[list[Detection]] = []
         for ts, frame in frames:
             h, w = frame.shape[:2]
@@ -126,6 +135,67 @@ class LocalProvider:
                     label="subtitle",
                     ts=ts,
                 ))
+            per_frame.append(merge_boxes(dets, _SUB_MERGE_IOU))
+        return per_frame
+
+    @staticmethod
+    def _detect_subtitle_classical(
+        frames: list[tuple[float, npt.NDArray[np.uint8]]],
+    ) -> list[list[Detection]]:
+        """无模型兜底：底部 45% 文字带内以「亮度/梯度掩膜 + 行投影」找字幕行。
+
+        硬编码字幕通常是高对比、横长条的白字；行投影天然聚合字符笔画，
+        对实心色块与细笔画文字都成立。
+        """
+        per_frame: list[list[Detection]] = []
+        for ts, frame in frames:
+            h, w = frame.shape[:2]
+            band_top = int(h * 0.55)
+            band = frame[band_top:, :]
+            band_h = h - band_top
+            gray = cv2.cvtColor(band, cv2.COLOR_BGR2GRAY)
+            grad = np.abs(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3))
+            bright = gray > max(
+                170.0, float(gray.mean()) + 2.5 * float(gray.std()),
+            )
+            raw_mask = (
+                (grad > max(40.0, float(gray.mean()) * 0.6)) | bright
+            ).astype(np.uint8)
+            raw_mask *= 255
+            mask_u8 = np.asarray(
+                cv2.morphologyEx(
+                    raw_mask,
+                    cv2.MORPH_CLOSE,
+                    cv2.getStructuringElement(
+                        cv2.MORPH_RECT, (max(15, w // 12), 3),
+                    ),
+                ),
+            ).astype(np.uint8)
+            row_active = (mask_u8 > 0).sum(axis=1)
+            row_on = row_active > max(3, int(w * 0.04))
+            min_h = max(4, int(h * 0.012))
+            dets: list[Detection] = []
+            i = 0
+            while i < band_h:
+                if not row_on[i]:
+                    i += 1
+                    continue
+                j = i
+                while j < band_h and row_on[j]:
+                    j += 1
+                xs = np.where(mask_u8[i:j, :].any(axis=0))[0]
+                cw = int(xs[-1]) - int(xs[0]) + 1 if xs.size else 0
+                ch = j - i
+                if xs.size and ch <= band_h * 0.6 and cw >= w * 0.08 \
+                        and ch >= min_h and cw > ch:
+                    dets.append(Detection(
+                        bbox=BBox(x=int(xs[0]) / w, y=(band_top + i) / h,
+                                  w=cw / w, h=ch / h),
+                        confidence=0.8,
+                        label="subtitle",
+                        ts=ts,
+                    ))
+                i = j
             per_frame.append(merge_boxes(dets, _SUB_MERGE_IOU))
         return per_frame
 
@@ -167,10 +237,15 @@ class LocalProvider:
         img_in = resized_img.astype(np.float32) / 127.5 - 1.0
         img_in = np.ascontiguousarray(img_in.transpose(2, 0, 1))[None]
         msk_in = (resized_mask > 0).astype(np.float32)[None, None]
-        outputs = sess.run(None, {
-            "image": img_in.astype(np.float32),
-            "mask": msk_in,
-        })
+        try:
+            outputs = sess.run(None, {
+                "image": img_in.astype(np.float32),
+                "mask": msk_in,
+            })
+        except Exception as exc:    # 模型与契约不符等：不致命，降级 TELEA
+            logger.warning("LaMa 推理失败，降级 INPAINT_TELEA：%s", exc)
+            return cv2.inpaint(frame, mask, 3, cv2.INPAINT_TELEA).astype(
+                np.uint8)
         result = np.asarray(outputs[0])[0]
         result = ((result.transpose(1, 2, 0) + 1.0) * 127.5).clip(0, 255).astype(np.uint8)
         back = cv2.resize(result, (orig_w, orig_h))
@@ -187,8 +262,18 @@ class LocalProvider:
     def embed_frames(
         self, frames: list[tuple[float, npt.NDArray[np.uint8]]]
     ) -> npt.NDArray[np.float32]:
-        """CLIP 预处理 → 批推理 batch=16 → L2 归一化 (n,512)。"""
-        sess = self._registry.session("clip")   # AI001/AI002 由调用方捕获降级
+        """CLIP 预处理 → 批推理 batch=16 → L2 归一化 (n,512)。
+
+        CLIP 缺失/损坏降级经典构图特征（颜色直方图+灰度网格+DCT 纹理），
+        维度与归一化口径与 CLIP 一致，重复度分析可继续但判别力下降。
+        """
+        try:
+            sess = self._registry.session("clip")
+        except AppError as exc:
+            logger.warning(
+                "CLIP 不可用（%s），构图特征降级为经典特征", exc.code,
+            )
+            return self._classical_embed(frames)
         vectors: list[npt.NDArray[np.float32]] = []
         batch: list[npt.NDArray[np.float32]] = []
 
@@ -220,6 +305,42 @@ class LocalProvider:
         norms[norms == 0] = 1.0
         result_arr: npt.NDArray[np.float32] = (mat / norms).astype(np.float32)
         return result_arr
+
+    @staticmethod
+    def _classical_embed(
+        frames: list[tuple[float, npt.NDArray[np.uint8]]],
+    ) -> npt.NDArray[np.float32]:
+        """经典构图特征：HSV 直方图(64) + 8×8 灰度网格均值/方差(128)
+        + DCT 低频(64) + 梯度能量(2)，补零到 512 维。确定性、免模型。"""
+        vectors: list[npt.NDArray[np.float32]] = []
+        for _ts, frame in frames:
+            small = cv2.resize(frame, (64, 64), interpolation=cv2.INTER_AREA)
+            hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
+            hist = cv2.calcHist(
+                [hsv], [0, 1], None, [8, 8], [0, 180, 0, 256],
+            ).flatten()
+            hist = hist / max(float(hist.sum()), 1.0)
+            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            cells = gray.reshape(8, 8, 8, 8)
+            grid_mean = cells.mean(axis=(1, 3)).flatten() / 255.0
+            grid_std = cells.std(axis=(1, 3)).flatten() / 255.0
+            dct = cv2.dct(gray).flatten()[:64]
+            dct = dct / max(float(np.abs(dct).max()), 1e-6)
+            gx = float(np.abs(cv2.Sobel(
+                gray, cv2.CV_32F, 1, 0, ksize=3)).mean()) / 255.0
+            gy = float(np.abs(cv2.Sobel(
+                gray, cv2.CV_32F, 0, 1, ksize=3)).mean()) / 255.0
+            vectors.append(np.concatenate(
+                [hist, grid_mean, grid_std, dct, [gx, gy]],
+            ).astype(np.float32))
+        out = np.zeros((len(vectors), 512), dtype=np.float32)
+        for i, vec in enumerate(vectors):
+            out[i, :len(vec)] = vec
+        norms: npt.NDArray[np.float32] = np.linalg.norm(
+            out, axis=1, keepdims=True,
+        )
+        norms[norms == 0] = 1.0
+        return (out / norms).astype(np.float32)
 
 
 
