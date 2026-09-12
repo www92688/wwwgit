@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ych.ui.u6_common.platform_labels import platform_label
+
 _STATE_TEXT = {
     "pending": "等待中",
     "running": "下载中",
@@ -90,7 +92,7 @@ class DownloadQueueView(QWidget):
     def add_row_info(self, row_id: int, platform: str, title: str) -> None:
         """入队时预登记展示信息。"""
         row = self._ensure_row(row_id)
-        self.table.setItem(row, 0, QTableWidgetItem(platform))
+        self.table.setItem(row, 0, QTableWidgetItem(platform_label(platform)))
         self.table.setItem(row, 1, QTableWidgetItem(title))
         if self.table.item(row, 2) is None:
             self.table.setItem(row, 2, QTableWidgetItem("等待中"))

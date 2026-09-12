@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from ych.common.schemas import VideoMeta
 from ych.ui.u6_common.empty_state import attach_empty_state
+from ych.ui.u6_common.platform_labels import platform_label
 from ych.ui.u6_common.thumb_fetcher import ThumbFetcher, thumb_key
 
 _THUMB_ROLE = int(Qt.ItemDataRole.UserRole + 1)   # item → 缩略图缓存键
@@ -164,7 +165,8 @@ class ResultList(QWidget):
         watermark = "无水印" if meta.watermark_tag == "no" else (
             "有水印" if meta.watermark_tag == "yes" else "")
         detail = " · ".join(
-            p for p in (meta.plugin_id, f"时长 {meta.duration_s:.0f}s",
+            p for p in (platform_label(meta.plugin_id),
+                        f"时长 {meta.duration_s:.0f}s",
                         quality, _fmt_size(meta.file_size_bytes), watermark)
             if p
         )

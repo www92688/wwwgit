@@ -48,7 +48,7 @@ class _CanvasLabel(QLabel):
         super().paintEvent(ev)
         if self._current is not None:
             painter = QPainter(self)
-            pen = QPen(QColor(55, 66, 250), 2)
+            pen = QPen(QColor(76, 110, 245), 2)   # 主题主色 #4c6ef5
             painter.setPen(pen)
             painter.drawRect(self._current)
 
@@ -99,6 +99,7 @@ class BoxSelectCanvas(QWidget):
         self._label.region_added.connect(self.register_region)
         self._label.region_added.connect(lambda _b: self.regions_changed.emit())
         self._boxes: list[BBox] = []
+        self._clean_pixmap: QPixmap | None = None   # 无框选标注的原图，清空时还原
 
     def set_image(self, image_path: str | None) -> None:
         if not image_path:
@@ -111,6 +112,7 @@ class BoxSelectCanvas(QWidget):
                 Qt.TransformationMode.SmoothTransformation,
             )
             self._boxes.clear()
+            self._clean_pixmap = QPixmap(scaled)
             self._label.setPixmap(scaled)
             self.regions_changed.emit()
 
@@ -119,6 +121,9 @@ class BoxSelectCanvas(QWidget):
 
     def clear_regions(self) -> None:
         self._boxes.clear()
+        # 已画进 pixmap 的橙色框一并擦除（还原为无标注帧）
+        if self._clean_pixmap is not None and self._label.pixmap() is not None:
+            self._label.setPixmap(QPixmap(self._clean_pixmap))
         self.regions_changed.emit()
 
     def register_region(self, bbox: BBox) -> None:

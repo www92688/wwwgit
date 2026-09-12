@@ -136,7 +136,7 @@ def test_capture_queue_view_renders_updates(qapp, qtbot) -> None:
     qtbot.addWidget(view)
     # 入队预登记：平台/标题立即可见，状态为等待中（修复"-"列）
     view.add_row_info(7, "pixabay", "sunset river")
-    assert view.table.item(0, 0).text() == "pixabay"
+    assert view.table.item(0, 0).text() == "Pixabay"   # 显示名映射
     assert view.table.item(0, 1).text() == "sunset river"
     assert view.table.item(0, 2).text() == "等待中"
     view.on_item_updated(7, "running", 0.4, "")

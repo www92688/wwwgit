@@ -27,6 +27,11 @@ _CN_PLATFORMS = ("douyin", "kuaishou", "bilibili", "xiaohongshu")
 _GLOBAL_PLATFORMS = ("tiktok", "youtube")
 _STOCK_PLATFORMS = ("pexels", "pixabay")
 
+# 平台展示名（与 _CN/_GLOBAL/_STOCK 顺序一一对应）
+_CN_NAMES = ("抖音", "快手", "B站", "小红书")
+_GLOBAL_NAMES = ("TikTok", "YouTube")
+_STOCK_NAMES = ("Pexels", "Pixabay")
+
 
 class _CoordinatorLike(Protocol):
     def search_multi(
@@ -145,8 +150,11 @@ class CapturePage(QWidget):
         cn_group = QWidget()
         cn_layout = QVBoxLayout(cn_group)
         cn_layout.setContentsMargins(0, 0, 0, 0)
-        for pid in _CN_PLATFORMS:
-            cb = QCheckBox(f"国内·{pid}")
+        cn_note = QLabel("国内平台（暂未开放，框架占位）")
+        cn_note.setObjectName("muted")
+        cn_layout.addWidget(cn_note)
+        for pid, name in zip(_CN_PLATFORMS, _CN_NAMES, strict=True):
+            cb = QCheckBox(name)
             cb.setChecked(True)
             cn_layout.addWidget(cb)
             self.cn_checks[pid] = cb
@@ -161,8 +169,8 @@ class CapturePage(QWidget):
         global_group = QWidget()
         global_layout = QVBoxLayout(global_group)
         global_layout.setContentsMargins(0, 0, 0, 0)
-        for pid in _GLOBAL_PLATFORMS:
-            cb = QCheckBox(pid)
+        for pid, name in zip(_GLOBAL_PLATFORMS, _GLOBAL_NAMES, strict=True):
+            cb = QCheckBox(name)
             cb.setEnabled(False)   # 总开关默认关：子项初始禁用
             global_layout.addWidget(cb)
             self.global_checks[pid] = cb
@@ -171,8 +179,8 @@ class CapturePage(QWidget):
         stock_group = QWidget()
         stock_layout = QVBoxLayout(stock_group)
         stock_layout.setContentsMargins(0, 0, 0, 0)
-        for pid in _STOCK_PLATFORMS:
-            cb = QCheckBox(f"{pid}（免费素材站）")
+        for pid, name in zip(_STOCK_PLATFORMS, _STOCK_NAMES, strict=True):
+            cb = QCheckBox(f"{name}（免费素材站）")
             cb.setChecked(True)
             cb.setToolTip(self.tr("免费素材站可直连，不受国外总开关约束；"
                                   "需在设置页配置对应 Key"))
