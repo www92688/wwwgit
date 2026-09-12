@@ -227,3 +227,5 @@ QStatusBar {
 }
 QStatusBar QLabel { font-size: 12px; }
 QLabel#taskStatus { color: #57606a; padding: 2px 8px; }
+
+QLabel#stepHint { color: #57606a; padding: 2px 2px; }

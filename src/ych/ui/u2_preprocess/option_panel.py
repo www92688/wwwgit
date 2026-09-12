@@ -43,7 +43,8 @@ class OptionPanel(QGroupBox):
         self.crop_y = QDoubleSpinBox()
         self.crop_w = QDoubleSpinBox()
         self.crop_h = QDoubleSpinBox()
-        for spin in (self.crop_x, self.crop_y, self.crop_w, self.crop_h):
+        self._crop_spins = (self.crop_x, self.crop_y, self.crop_w, self.crop_h)
+        for spin in self._crop_spins:
             spin.setRange(0.0, 1.0)
             spin.setSingleStep(0.05)
         crop_form = QFormLayout()
@@ -52,6 +53,9 @@ class OptionPanel(QGroupBox):
         crop_form.addRow("裁剪框 X / Y", self._pair(self.crop_x, self.crop_y))
         crop_form.addRow("裁剪框 宽 / 高", self._pair(self.crop_w, self.crop_h))
         form.addRow(crop_form)
+        # 未启用裁剪时禁用数值框（避免"改了却无效"的困惑）
+        self.crop_enabled.toggled.connect(self._sync_crop_enabled)
+        self._sync_crop_enabled()
 
         self.aspect = QComboBox()
         self.aspect.addItem("不调整", None)
@@ -80,6 +84,11 @@ class OptionPanel(QGroupBox):
         row.addWidget(left)
         row.addWidget(right)
         return box
+
+    def _sync_crop_enabled(self, enabled: bool | None = None) -> None:
+        checked = self.crop_enabled.isChecked() if enabled is None else enabled
+        for spin in self._crop_spins:
+            spin.setEnabled(checked)
 
     # ---- 输出 ----
     def to_ops(self, manual_regions: ManualRegions | None = None) -> PreprocessOps:

@@ -46,6 +46,15 @@ class PreprocessPage(QWidget):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(8)
 
+        # ---- 步骤引导 ----
+        from ych.ui.u6_common.step_hint import StepHint
+
+        root.addWidget(StepHint([
+            "左侧勾选素材",
+            "右侧选择处理项（手动模式可预览后框选区域）",
+            "「开始处理」提交",
+        ]))
+
         split = QSplitter()
         self.asset_tree = AssetTree()
         attach_empty_state(

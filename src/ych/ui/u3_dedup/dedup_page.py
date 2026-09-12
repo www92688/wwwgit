@@ -54,6 +54,18 @@ class DedupPage(QWidget):
         self._schemes = scheme_manager
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
+
+        # ---- 步骤引导 ----
+        from ych.ui.u6_common.step_hint import StepHint
+
+        root.addWidget(StepHint([
+            "左侧勾选素材",
+            "「分析重复度」后选方案（轻/中/重度或自定义）",
+            "「开始去重」提交",
+        ]))
+
         split = QHBoxLayout()
 
         # ---- 左：素材勾选列表 ----

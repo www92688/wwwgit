@@ -74,6 +74,17 @@ class CapturePage(QWidget):
         self._ai_worker: Any | None = None
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
+
+        # ---- 步骤引导 ----
+        from ych.ui.u6_common.step_hint import StepHint
+
+        root.addWidget(StepHint([
+            "输入关键词（逗号分隔可批量）",
+            "搜索并勾选结果",
+            "「下载选中」入队",
+        ]))
 
         # ---- 顶部：关键词 + 历史词 + AI 扩展 + 搜索 ----
         top = QHBoxLayout()
@@ -141,24 +152,27 @@ class CapturePage(QWidget):
 
     # ---- 构建 ----
     def _build_platform_box(self) -> QGroupBox:
+        from PySide6.QtWidgets import QGridLayout
+
         box = QGroupBox(self.tr("采集平台"))
         layout = QVBoxLayout(box)
         self.cn_checks: dict[str, QCheckBox] = {}
         self.global_checks: dict[str, QCheckBox] = {}   # 受总开关约束
         self.stock_checks: dict[str, QCheckBox] = {}    # 素材站：始终可用
 
-        cn_group = QWidget()
-        cn_layout = QVBoxLayout(cn_group)
-        cn_layout.setContentsMargins(0, 0, 0, 0)
         cn_note = QLabel("国内平台（暂未开放，框架占位）")
         cn_note.setObjectName("muted")
-        cn_layout.addWidget(cn_note)
-        for pid, name in zip(_CN_PLATFORMS, _CN_NAMES, strict=True):
+        layout.addWidget(cn_note)
+        cn_grid = QGridLayout()
+        cn_grid.setContentsMargins(0, 0, 0, 0)
+        for i, (pid, name) in enumerate(
+            zip(_CN_PLATFORMS, _CN_NAMES, strict=True),
+        ):
             cb = QCheckBox(name)
             cb.setChecked(True)
-            cn_layout.addWidget(cb)
+            cn_grid.addWidget(cb, i // 2, i % 2)
             self.cn_checks[pid] = cb
-        layout.addWidget(cn_group)
+        layout.addLayout(cn_grid)
 
         self.foreign_master = QCheckBox("国外平台（TikTok / YouTube）")
         self.foreign_master.setToolTip(
@@ -166,27 +180,29 @@ class CapturePage(QWidget):
         )
         self.foreign_master.toggled.connect(self._on_foreign_toggled)
         layout.addWidget(self.foreign_master)
-        global_group = QWidget()
-        global_layout = QVBoxLayout(global_group)
-        global_layout.setContentsMargins(0, 0, 0, 0)
-        for pid, name in zip(_GLOBAL_PLATFORMS, _GLOBAL_NAMES, strict=True):
+        global_grid = QGridLayout()
+        global_grid.setContentsMargins(0, 0, 0, 0)
+        for i, (pid, name) in enumerate(
+            zip(_GLOBAL_PLATFORMS, _GLOBAL_NAMES, strict=True),
+        ):
             cb = QCheckBox(name)
             cb.setEnabled(False)   # 总开关默认关：子项初始禁用
-            global_layout.addWidget(cb)
+            global_grid.addWidget(cb, 0, i)
             self.global_checks[pid] = cb
-        layout.addWidget(global_group)
+        layout.addLayout(global_grid)
 
-        stock_group = QWidget()
-        stock_layout = QVBoxLayout(stock_group)
-        stock_layout.setContentsMargins(0, 0, 0, 0)
-        for pid, name in zip(_STOCK_PLATFORMS, _STOCK_NAMES, strict=True):
+        stock_grid = QGridLayout()
+        stock_grid.setContentsMargins(0, 0, 0, 0)
+        for i, (pid, name) in enumerate(
+            zip(_STOCK_PLATFORMS, _STOCK_NAMES, strict=True),
+        ):
             cb = QCheckBox(f"{name}（免费素材站）")
             cb.setChecked(True)
             cb.setToolTip(self.tr("免费素材站可直连，不受国外总开关约束；"
                                   "需在设置页配置对应 Key"))
-            stock_layout.addWidget(cb)
+            stock_grid.addWidget(cb, 0, i)
             self.stock_checks[pid] = cb
-        layout.addWidget(stock_group)
+        layout.addLayout(stock_grid)
         return box
 
     # ---- 槽 ----
