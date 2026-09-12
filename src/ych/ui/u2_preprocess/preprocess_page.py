@@ -51,16 +51,16 @@ class PreprocessPage(QWidget):
         from ych.ui.u6_common.step_hint import StepHint
 
         root.addWidget(StepHint([
-            "左侧勾选素材",
-            "右侧选择处理项（手动模式可预览后框选区域）",
-            "「开始处理」提交",
+            self.tr("左侧勾选素材"),
+            self.tr("右侧选择处理项（手动模式可预览后框选区域）"),
+            self.tr("「开始处理」提交"),
         ]))
 
         split = QSplitter()
         self.asset_tree = AssetTree()
         attach_empty_state(
-            self.asset_tree, "暂无素材",
-            "先到「采集工作台」下载素材，\n或把视频文件放入工作目录",
+            self.asset_tree, self.tr("暂无素材"),
+            self.tr("先到「采集工作台」下载素材，\n或把视频文件放入工作目录"),
         )
         self.asset_tree = AssetTree()
         btn_all = QPushButton(self.tr("全选"))
@@ -88,7 +88,7 @@ class PreprocessPage(QWidget):
         root.addWidget(split, 1)
 
         bottom = QHBoxLayout()
-        self.btn_preview = QPushButton("预览框选帧")
+        self.btn_preview = QPushButton(self.tr("预览框选帧"))
         self.btn_preview.setObjectName("secondaryBtn")
         self.btn_preview.clicked.connect(self._on_preview)
         self.btn_start = QPushButton(self.tr("开始处理"))

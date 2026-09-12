@@ -188,16 +188,20 @@ class TaskStatusLabel(QLabel):
         n = len(self._progress)
         batch_txt = ""
         if self._batch[1]:
-            batch_txt = f" · 批次 {self._batch[0]}/{self._batch[1]}"
+            batch_txt = " · " + self.tr("批次 {a}/{b}").format(
+                a=self._batch[0], b=self._batch[1])
         if n == 0:
             self.setText(
-                f'<span style="color:#2f9e6e;">●</span>&nbsp; 就绪{batch_txt}',
+                f'<span style="color:#2f9e6e;">●</span>&nbsp; '
+                f"{self.tr('就绪')}{batch_txt}",
             )
             return
         avg = sum(self._progress.values()) / n
         self.setText(
-            f'<span style="color:#4c6ef5;">●</span>&nbsp; 进行中 {n} 项'
-            f" · 平均进度 {avg:.0%}{batch_txt}",
+            '<span style="color:#4c6ef5;">●</span>&nbsp; '
+            + self.tr("进行中 {n} 项 · 平均进度 {pct}").format(
+                n=n, pct=f"{avg:.0%}")
+            + batch_txt,
         )
 
 

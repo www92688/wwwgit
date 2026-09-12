@@ -122,7 +122,10 @@ class ResultList(QWidget):
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         item.setCheckState(Qt.CheckState.Checked)
         item.setSizeHint(QSize(0, 54))
-        item.setToolTip(f"{meta.title or meta.video_key}\n双击打开素材来源页")
+        item.setToolTip(
+            f"{meta.title or meta.video_key}\n"
+            f"{self.tr('双击打开素材来源页')}",
+        )
         item.setIcon(_placeholder_icon())
         if meta.thumbnail_url:
             key = thumb_key(meta.thumbnail_url)

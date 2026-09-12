@@ -81,9 +81,9 @@ class CapturePage(QWidget):
         from ych.ui.u6_common.step_hint import StepHint
 
         root.addWidget(StepHint([
-            "输入关键词（逗号分隔可批量）",
-            "搜索并勾选结果",
-            "「下载选中」入队",
+            self.tr("输入关键词（逗号分隔可批量）"),
+            self.tr("搜索并勾选结果"),
+            self.tr("「下载选中」入队"),
         ]))
 
         # ---- 顶部：关键词 + 历史词 + AI 扩展 + 搜索 ----
@@ -165,7 +165,7 @@ class CapturePage(QWidget):
         self.global_checks: dict[str, QCheckBox] = {}   # 受总开关约束
         self.stock_checks: dict[str, QCheckBox] = {}    # 素材站：始终可用
 
-        cn_note = QLabel("国内平台（暂未开放，框架占位）")
+        cn_note = QLabel(self.tr("国内平台（暂未开放，框架占位）"))
         cn_note.setObjectName("muted")
         layout.addWidget(cn_note)
         cn_grid = QGridLayout()
@@ -179,7 +179,7 @@ class CapturePage(QWidget):
             self.cn_checks[pid] = cb
         layout.addLayout(cn_grid)
 
-        self.foreign_master = QCheckBox("国外平台（TikTok / YouTube）")
+        self.foreign_master = QCheckBox(self.tr("国外平台（TikTok / YouTube）"))
         self.foreign_master.setToolTip(
             self.tr("开启前会自动检测外网可达性；TikTok/YouTube 目前为占位未开放"),
         )
@@ -201,7 +201,7 @@ class CapturePage(QWidget):
         for i, (pid, name) in enumerate(
             zip(_STOCK_PLATFORMS, _STOCK_NAMES, strict=True),
         ):
-            cb = QCheckBox(f"{name}（免费素材站）")
+            cb = QCheckBox(f"{name}" + self.tr("（免费素材站）"))
             cb.setChecked(True)
             cb.setToolTip(self.tr("免费素材站可直连，不受国外总开关约束；"
                                   "需在设置页配置对应 Key"))

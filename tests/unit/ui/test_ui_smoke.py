@@ -330,6 +330,13 @@ def test_i18n_switch_loads_qm(qapp, qtbot) -> None:
     assert service.current_locale() == "en_US"
     assert received[-1] == "en_US"
 
+    # 语言包真实生效：切换后 tr() 输出英文，切回后回到中文源文
+    from PySide6.QtCore import QCoreApplication
+
+    assert QCoreApplication.translate("CapturePage", "搜索") == "Search"
+    service.switch_locale("zh_CN")
+    assert QCoreApplication.translate("CapturePage", "搜索") == "搜索"
+
 
 def test_asset_tree_check_cascades(qapp, qtbot) -> None:
     """父节点勾选级联到叶子；叶子取消后父节点变三态。"""

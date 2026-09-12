@@ -2,7 +2,7 @@
 # 每行提供「取消」（仅进行中可用），经 cancel_requested(row_id) 上抛。
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QCoreApplication, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QLabel,
@@ -56,7 +56,8 @@ class DownloadQueueView(QWidget):
 
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
-            ["平台", "视频", "状态", "进度", "操作"],
+            [self.tr("平台"), self.tr("视频"), self.tr("状态"),
+             self.tr("进度"), self.tr("操作")],
         )
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -65,7 +66,7 @@ class DownloadQueueView(QWidget):
         )
         self.table.setAlternatingRowColors(True)
         root.addWidget(self.table, 1)
-        hint = QLabel("下载队列（断点续传，中断后可恢复；进行中的任务可取消）")
+        hint = QLabel(self.tr("下载队列（断点续传，中断后可恢复；进行中的任务可取消）"))
         hint.setObjectName("muted")
         root.addWidget(hint)
 
@@ -77,7 +78,7 @@ class DownloadQueueView(QWidget):
                 self._ensure_note_row(f"⚠ {msg}")
             return
         row = self._ensure_row(row_id)
-        status_item = QTableWidgetItem(_STATE_TEXT.get(state, state))
+        status_item = QTableWidgetItem(self._state_text(state))
         color = _STATE_COLOR.get(state)
         if color:
             status_item.setForeground(QColor(color))
@@ -90,6 +91,19 @@ class DownloadQueueView(QWidget):
             if btn is not None:
                 btn.setEnabled(False)
                 btn.setToolTip("任务已结束")
+
+    @staticmethod
+    def _state_text(state: str) -> str:
+        text = {
+            "pending": QCoreApplication.translate("DownloadQueueView", "等待中"),
+            "running": QCoreApplication.translate("DownloadQueueView", "下载中"),
+            "success": QCoreApplication.translate("DownloadQueueView", "已完成"),
+            "failed": QCoreApplication.translate("DownloadQueueView", "失败"),
+            "skipped": QCoreApplication.translate("DownloadQueueView", "已跳过"),
+            "interrupted": QCoreApplication.translate("DownloadQueueView", "已中断"),
+            "canceled": QCoreApplication.translate("DownloadQueueView", "已取消"),
+        }
+        return text.get(state, state)
 
     def add_row_info(self, row_id: int, platform: str, title: str) -> None:
         """入队时预登记展示信息。"""

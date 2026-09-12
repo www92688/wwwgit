@@ -64,9 +64,9 @@ class DedupPage(QWidget):
         from ych.ui.u6_common.step_hint import StepHint
 
         root.addWidget(StepHint([
-            "左侧勾选素材",
-            "「分析重复度」后选方案（轻/中/重度或自定义）",
-            "「开始去重」提交",
+            self.tr("左侧勾选素材"),
+            self.tr("「分析重复度」后选方案（轻/中/重度或自定义）"),
+            self.tr("「开始去重」提交"),
         ]))
 
         split = QHBoxLayout()
@@ -76,8 +76,8 @@ class DedupPage(QWidget):
         left_box.addWidget(QLabel(self.tr("待去重素材")))
         self.asset_list = QListWidget()
         attach_empty_state(
-            self.asset_list, "暂无素材",
-            "先到「采集工作台」下载素材，\n或把视频文件放入工作目录",
+            self.asset_list, self.tr("暂无素材"),
+            self.tr("先到「采集工作台」下载素材，\n或把视频文件放入工作目录"),
         )
         left_box.addWidget(self.asset_list, 1)
         btn_all = QPushButton(self.tr("全选"))
@@ -92,9 +92,9 @@ class DedupPage(QWidget):
         self.radio_group = QButtonGroup(self)
         self._preset_radios: dict[str, QRadioButton] = {}
         preset_descs = {
-            "light": "保守调整：轻度镜像/微裁切/轻调色，画质损失最小",
-            "mid": "多手法组合：推荐日常使用，重复度下降明显",
-            "heavy": "强力规避：全部手法叠加，适合重复度很高的素材",
+            "light": self.tr("保守调整：轻度镜像/微裁切/轻调色，画质损失最小"),
+            "mid": self.tr("多手法组合：推荐日常使用，重复度下降明显"),
+            "heavy": self.tr("强力规避：全部手法叠加，适合重复度很高的素材"),
         }
         cards_row = QHBoxLayout()
         cards_row.setSpacing(8)
@@ -132,10 +132,10 @@ class DedupPage(QWidget):
         right_box.addWidget(self.editor, 1)
 
         row_btns = QHBoxLayout()
-        btn_apply_preset = QPushButton("套用预设")
+        btn_apply_preset = QPushButton(self.tr("套用预设"))
         btn_apply_preset.setObjectName("secondaryBtn")
         btn_apply_preset.clicked.connect(self._apply_preset)
-        btn_to_custom = QPushButton("预设→自定义微调")
+        btn_to_custom = QPushButton(self.tr("预设→自定义微调"))
         btn_to_custom.setObjectName("secondaryBtn")
         btn_to_custom.clicked.connect(self._to_custom)
         row_btns.addWidget(btn_apply_preset)

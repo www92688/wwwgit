@@ -19,9 +19,6 @@ from ych.ui.u6_common.toast import Toast
 
 _EMPTY_INDEX = QModelIndex()
 
-_TYPE_LABEL = {"preprocess": "预处理", "dedup": "去重", "compare": "分析",
-               "download": "下载"}
-
 
 class FailRecordModel(QAbstractTableModel):
     HEADERS: ClassVar[list[str]] = ["文件名", "失败原因", "错误码", "时间", "类型"]
@@ -51,8 +48,14 @@ class FailRecordModel(QAbstractTableModel):
         r = self._rows[index.row()]
         col = index.column()
         if role == Qt.ItemDataRole.DisplayRole:
+            type_label = {
+                "preprocess": self.tr("预处理"),
+                "dedup": self.tr("去重"),
+                "compare": self.tr("分析"),
+                "download": self.tr("下载"),
+            }.get(str(r.task_type), str(r.task_type))
             vals = [r.file_name, r.fail_reason, r.error_code or "",
-                    r.fail_time, _TYPE_LABEL.get(str(r.task_type), str(r.task_type))]
+                    r.fail_time, type_label]
             return str(vals[col])
         if role == Qt.ItemDataRole.ToolTipRole and col == 1:
             return str(r.fail_reason)
@@ -99,8 +102,8 @@ class FailurePage(QWidget):
         self.table.setColumnWidth(1, 300)
         self.table.setColumnWidth(2, 90)
         attach_empty_state(
-            self.table, "没有失败记录",
-            "处理失败的任务会集中在这里，可一键重新处理",
+            self.table, self.tr("没有失败记录"),
+            self.tr("处理失败的任务会集中在这里，可一键重新处理"),
             is_empty=lambda: self._model.rowCount() == 0,
         )
         root.addWidget(self.table, 1)
@@ -139,7 +142,7 @@ class FailurePage(QWidget):
     def _reprocess(self) -> None:
         ids = self._selected_ids()
         if not ids:
-            Toast.show_message(self, "请先在列表中选中要重新处理的记录")
+            Toast.show_message(self, self.tr("请先在列表中选中要重新处理的记录"))
             return
         done = 0
         for rid in ids:
@@ -148,22 +151,23 @@ class FailurePage(QWidget):
                 done += 1
             except Exception:
                 continue   # 单条重建失败不阻塞其余（UI 层兜底）
-        Toast.show_message(self, f"已重新提交 {done} 条任务")
+        Toast.show_message(self, self.tr("已重新提交 {} 条任务").format(done))
         self.refresh()
 
     def _delete_selected(self) -> None:
         ids = self._selected_ids()
         if not ids:
-            Toast.show_message(self, "请先在列表中选中要删除的记录")
+            Toast.show_message(self, self.tr("请先在列表中选中要删除的记录"))
             return
         answer = QMessageBox.question(
-            self, "清除失败记录",
-            f"确定清除选中的 {len(ids)} 条失败记录吗？\n"
-            "清除后如需再次处理，请回到对应工作台重新提交。",
+            self, self.tr("清除失败记录"),
+            self.tr("确定清除选中的 {n} 条失败记录吗？\n"
+                    "清除后如需再次处理，请回到对应工作台重新提交。").format(
+                        n=len(ids)),
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
         for rid in ids:
             self._fails.delete(rid)
-        Toast.show_message(self, f"已删除 {len(ids)} 条失败记录")
+        Toast.show_message(self, self.tr("已删除 {} 条失败记录").format(len(ids)))
         self.refresh()

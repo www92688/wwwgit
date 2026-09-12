@@ -145,8 +145,9 @@ class SettingsPage(QWidget):
 
         # 界面主题：跟随系统 / 浅色 / 深色（切换即时生效）
         self.theme_combo = QComboBox()
-        for label, val in (("跟随系统", "system"), ("浅色", "light"),
-                           ("深色", "dark")):
+        for label, val in ((self.tr("跟随系统"), "system"),
+                           (self.tr("浅色"), "light"),
+                           (self.tr("深色"), "dark")):
             self.theme_combo.addItem(label, val)
         saved_theme = str(config.get("theme") or "system")
         t_idx = self.theme_combo.findData(saved_theme)
