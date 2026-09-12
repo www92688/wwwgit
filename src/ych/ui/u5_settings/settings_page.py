@@ -436,6 +436,7 @@ class SettingsPage(QWidget):
         self.service_list.clear()
         header_stock = QListWidgetItem(self.tr("素材站（填官方 Key 即启用）"))
         header_stock.setFlags(Qt.ItemFlag.NoItemFlags)
+        header_stock.setForeground(QBrush(QColor(_GRAY)))
         header_stock.setToolTip(
             self.tr(
                 "素材站由应用内置接口适配（目前 Pexels / Pixabay）。\n"
@@ -447,12 +448,15 @@ class SettingsPage(QWidget):
         for pid, label in _STOCK_SITES:
             has_key = bool(self._config.get(f"{pid}_api_key"))
             state = self.tr("已配置") if has_key else self.tr("未配置")
-            item = QListWidgetItem(f"{label}　{state}")
+            item = QListWidgetItem(f"{label}　{'✓ ' if has_key else ''}{state}")
             item.setData(Qt.ItemDataRole.UserRole, ("stock", pid))
+            if not has_key:
+                item.setForeground(QBrush(QColor(_GRAY)))
             self.service_list.addItem(item)
 
         header_ai = QListWidgetItem(self.tr("AI 服务（关键词扩展等）"))
         header_ai.setFlags(Qt.ItemFlag.NoItemFlags)
+        header_ai.setForeground(QBrush(QColor(_GRAY)))
         self.service_list.addItem(header_ai)
         default_id = str(self._config.get("ai_default_service") or "")
         for service_id, svc in self._ai_services_raw().items():

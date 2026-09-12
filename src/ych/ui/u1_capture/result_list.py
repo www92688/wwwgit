@@ -82,6 +82,7 @@ class ResultList(QWidget):
 
         self.select_all.toggled.connect(self._toggle_all)
         self.list.itemChanged.connect(lambda _item: self._refresh_footer())
+        self.list.itemDoubleClicked.connect(self._open_source_page)
 
     # ---- 数据 ----
     def set_results(self, metas: list[VideoMeta], keyword: str,
@@ -121,7 +122,7 @@ class ResultList(QWidget):
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         item.setCheckState(Qt.CheckState.Checked)
         item.setSizeHint(QSize(0, 54))
-        item.setToolTip(meta.title or meta.video_key)
+        item.setToolTip(f"{meta.title or meta.video_key}\n双击打开素材来源页")
         item.setIcon(_placeholder_icon())
         if meta.thumbnail_url:
             key = thumb_key(meta.thumbnail_url)
@@ -209,6 +210,16 @@ class ResultList(QWidget):
             refresh()
 
     # ---- 槽 ----
+    def _open_source_page(self, item: QListWidgetItem) -> None:
+        """双击卡片：浏览器打开素材来源页（无 page_url 时忽略）。"""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        data = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(data, VideoMeta) or not data.page_url:
+            return
+        QDesktopServices.openUrl(QUrl(data.page_url))
+
     def _toggle_all(self, checked: bool) -> None:
         state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
         for i in range(self.list.count()):

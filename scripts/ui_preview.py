@@ -129,8 +129,25 @@ def main() -> int:
     app.processEvents()
     failures.grab().save(str(out_dir / "4_failures.png"))
 
-    # 主窗口（含导航）：采集页入栈
+    # 主窗口（含导航 + 底部任务状态栏演示）：采集页入栈
     window.add_page(capture)
+
+    from PySide6.QtCore import QObject, Signal
+
+    class _DemoSched(QObject):
+        task_submitted = Signal(str)
+        task_state = Signal(str, str, str)
+        task_progress = Signal(str, float)
+        queue_stats = Signal(int, int)
+
+    demo = _DemoSched()
+    window.attach_task_status(demo)
+    demo.task_submitted.emit("t1")
+    demo.task_progress.emit("t1", 0.46)
+    demo.task_submitted.emit("t2")
+    demo.task_progress.emit("t2", 0.7)
+    demo.queue_stats.emit(3, 8)
+
     window.resize(1280, 800)
     window.show()
     app.processEvents()

@@ -14,6 +14,15 @@ from PySide6.QtWidgets import (
 from ych.common.schemas import CompareReport
 
 
+def _risk_color(pct: float) -> str:
+    """重复度语义色：<30% 绿（安全）/ <60% 橙 / 其余红（高重复）。"""
+    if pct < 30:
+        return "#2f9e6e"
+    if pct < 60:
+        return "#e8890c"
+    return "#e03131"
+
+
 class _DimBar(QWidget):
     def __init__(self, title: str) -> None:
         super().__init__()
@@ -27,7 +36,10 @@ class _DimBar(QWidget):
         row.addWidget(self.bar, 1)
 
     def set_pct(self, value: float) -> None:
-        self.bar.setValue(int(max(0.0, min(value, 1.0)) * 100))
+        pct = max(0.0, min(value, 1.0)) * 100.0
+        self.bar.setValue(int(pct))
+        color = _risk_color(pct)
+        self.bar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; }}")
 
 
 def _pct(v: float | None) -> str:
@@ -44,8 +56,11 @@ class ReportView(QWidget):
 
         ring_box = QVBoxLayout()
         self.overall_label = QLabel("—%")
-        self.overall_label.setStyleSheet("font-size:34px; font-weight:bold;")
+        self.overall_label.setStyleSheet(
+            "font-size:34px; font-weight:600; color:#a5aec0;",
+        )
         cap = QLabel("综合重复度")
+        cap.setObjectName("muted")
         ring_box.addWidget(self.overall_label)
         ring_box.addWidget(cap)
         top.addLayout(ring_box)
@@ -68,6 +83,13 @@ class ReportView(QWidget):
         )
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setColumnWidth(0, 70)
+        self.table.setColumnWidth(1, 90)
+        self.table.setColumnWidth(2, 320)
+        self.table.setColumnWidth(3, 80)
         root.addWidget(self.table, 1)
 
     # ---- 渲染 ----
@@ -79,12 +101,19 @@ class ReportView(QWidget):
     ) -> None:
         if report is None:
             self.overall_label.setText("—%")
+            self.overall_label.setStyleSheet(
+                "font-size:34px; font-weight:600; color:#a5aec0;",
+            )
             self.table.setRowCount(0)
             self.compare_label.setText("处理前 → 处理后：—")
             return
 
         best_dims = report.dims
-        self.overall_label.setText(f"{report.overall_score:.1f}%")
+        score = float(report.overall_score)
+        self.overall_label.setText(f"{score:.1f}%")
+        self.overall_label.setStyleSheet(
+            f"font-size:34px; font-weight:600; color:{_risk_color(score)};",
+        )
         self.dim_comp.set_pct(best_dims.composition)
         self.dim_motion.set_pct(best_dims.motion)
         self.dim_rhythm.set_pct(best_dims.rhythm)

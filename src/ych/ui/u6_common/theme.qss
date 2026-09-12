@@ -221,3 +221,9 @@ QTabBar::tab {
 }
 QTabBar::tab:selected { color: #4c6ef5; border-bottom: 2px solid #4c6ef5; }
 QTabWidget::pane { border: 1px solid #e2e6ee; border-radius: 8px; background: #ffffff; }
+
+QStatusBar {
+    background: #f2f4f8; border-top: 1px solid #e2e6ee; color: #57606a;
+}
+QStatusBar QLabel { font-size: 12px; }
+QLabel#taskStatus { color: #57606a; padding: 2px 8px; }

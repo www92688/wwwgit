@@ -140,6 +140,67 @@ class HelpDialog(QDialog):
         layout.addLayout(row)
 
 
+class TaskStatusLabel(QLabel):
+    """底部状态栏任务摘要：进行中数量 + 平均进度 + 批次完成度。
+
+    scheduler 信号驱动（跨线程信号经 QObject 接收者排队回主线程）。
+    """
+
+    _TERMINAL = frozenset(
+        {"success", "failed", "canceled", "skipped", "interrupted"},
+    )
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("taskStatus")
+        self.setTextFormat(Qt.TextFormat.RichText)
+        self._progress: dict[str, float] = {}
+        self._batch: tuple[int, int] = (0, 0)
+        self._render()
+
+    def attach(self, scheduler: Any) -> None:
+        scheduler.task_submitted.connect(self._on_submitted)
+        scheduler.task_state.connect(self._on_state)
+        scheduler.task_progress.connect(self._on_progress)
+        scheduler.queue_stats.connect(self._on_queue_stats)
+
+    def _on_submitted(self, task_id: str) -> None:
+        self._progress.setdefault(str(task_id), 0.0)
+        self._render()
+
+    def _on_state(self, task_id: str, state: str, _msg: str) -> None:
+        task_id = str(task_id)
+        if state in self._TERMINAL:
+            self._progress.pop(task_id, None)
+        elif state == "running":
+            self._progress.setdefault(task_id, 0.0)
+        self._render()
+
+    def _on_progress(self, task_id: str, ratio: float) -> None:
+        self._progress[str(task_id)] = max(0.0, min(1.0, float(ratio)))
+        self._render()
+
+    def _on_queue_stats(self, done: int, total: int) -> None:
+        self._batch = (0, 0) if total and done >= total else (int(done), int(total))
+        self._render()
+
+    def _render(self) -> None:
+        n = len(self._progress)
+        batch_txt = ""
+        if self._batch[1]:
+            batch_txt = f" · 批次 {self._batch[0]}/{self._batch[1]}"
+        if n == 0:
+            self.setText(
+                f'<span style="color:#2f9e6e;">●</span>&nbsp; 就绪{batch_txt}',
+            )
+            return
+        avg = sum(self._progress.values()) / n
+        self.setText(
+            f'<span style="color:#4c6ef5;">●</span>&nbsp; 进行中 {n} 项'
+            f" · 平均进度 {avg:.0%}{batch_txt}",
+        )
+
+
 class MainWindow(QMainWindow):
     """导航 + 页面栈；首次启动引导设置工作目录。"""
 
@@ -217,6 +278,16 @@ class MainWindow(QMainWindow):
         self.nav_list.setCurrentRow(0)
         self._install_shortcuts()
         self._restore_geometry()
+
+        # ---- 底部状态栏：任务进行中摘要（scheduler 经 attach_task_status 接入）----
+        self._task_status = TaskStatusLabel()
+        status_bar = self.statusBar()
+        assert status_bar is not None
+        status_bar.addPermanentWidget(self._task_status, 1)
+
+    def attach_task_status(self, scheduler: Any) -> None:
+        """接线调度器信号（app 装配时调用一次）。"""
+        self._task_status.attach(scheduler)
 
     # ---- 快捷键 / 窗口几何 ----
     def _install_shortcuts(self) -> None:

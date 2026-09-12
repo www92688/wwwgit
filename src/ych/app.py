@@ -119,6 +119,8 @@ def main() -> int:
 
     for page in (capture, preprocess, dedup, failures, settings):
         window.add_page(page)
+    # 底部状态栏：任务进行中摘要（进行中数量/平均进度/批次完成度）
+    window.attach_task_status(ctx.scheduler())
 
     # 预处理/去重工作台素材：启动加载一次，之后下载成功即自动刷新
     refresh_assets = wire_asset_refresh(ctx, preprocess, dedup, dm)
