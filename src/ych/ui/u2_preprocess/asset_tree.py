@@ -61,28 +61,45 @@ class AssetTree(QTreeWidget):
         """rows: AssetRow 列表（path/category/keyword/date_str）。"""
         self.blockSignals(True)
         self.clear()
-        tree: dict[str, dict[str, dict[str, list[str]]]] = {}
+        tree: dict[str, dict[str, dict[str, list[Any]]]] = {}
         for r in rows:
             category = r.category or "未分类"
             keyword = r.keyword or "未命名"
             date = r.date_str or "未知日期"
             tree.setdefault(category, {}).setdefault(keyword, {}).setdefault(
-                date, []
-            ).append(r.path)
+                date, [],
+            ).append(r)
         for category, kws in tree.items():
-            cat_item = QTreeWidgetItem([category])
+            n_cat = sum(
+                len(paths)
+                for dates in kws.values()
+                for paths in dates.values()
+            )
+            cat_item = QTreeWidgetItem([f"{category}（{n_cat}）"])
             cat_item.setFlags(cat_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             cat_item.setCheckState(0, Qt.CheckState.Unchecked)
             for keyword, dates in kws.items():
-                kw_item = QTreeWidgetItem([keyword])
+                n_kw = sum(len(paths) for paths in dates.values())
+                kw_item = QTreeWidgetItem([f"{keyword}（{n_kw}）"])
                 kw_item.setFlags(kw_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 kw_item.setCheckState(0, Qt.CheckState.Unchecked)
-                for _date, paths in dates.items():
-                    for p in paths:
-                        leaf = QTreeWidgetItem([Path(p).name])
-                        leaf.setData(0, Qt.ItemDataRole.UserRole, p)
-                        leaf.setFlags(leaf.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                for _date, rws in dates.items():
+                    for r in rws:
+                        leaf = QTreeWidgetItem([Path(r.path).name])
+                        leaf.setData(0, Qt.ItemDataRole.UserRole, r.path)
+                        leaf.setFlags(
+                            leaf.flags() | Qt.ItemFlag.ItemIsUserCheckable,
+                        )
                         leaf.setCheckState(0, Qt.CheckState.Unchecked)
+                        tip = r.path
+                        duration = getattr(r, "duration_s", 0) or 0
+                        width = getattr(r, "width", 0) or 0
+                        height = getattr(r, "height", 0) or 0
+                        if duration:
+                            tip += f"\n时长 {duration:.0f}s"
+                            if width and height:
+                                tip += f" · {width}x{height}"
+                        leaf.setToolTip(0, tip)
                         kw_item.addChild(leaf)
                 cat_item.addChild(kw_item)
             self.addTopLevelItem(cat_item)

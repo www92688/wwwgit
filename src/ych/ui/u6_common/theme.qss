@@ -200,6 +200,16 @@ QLabel#emptyTitle { color: @empty_title; font-size: 16px; background: transparen
 QLabel#emptyHint { color: @empty_hint; font-size: 12px; background: transparent; }
 QLabel#stepHint { color: @text2; padding: 2px 2px; background: transparent; }
 
+/* 去重方案档位卡片：选中态由动态属性 checked 驱动 */
+QWidget#presetCard {
+    border: 1px solid @border; border-radius: 8px; background: @card;
+}
+QWidget#presetCard[checked="true"] {
+    border: 1px solid @primary; background: @selected_bg;
+}
+QWidget#presetCard QRadioButton { font-weight: 600; background: transparent; }
+QWidget#presetCard QLabel { background: transparent; }
+
 /* ---------- Toast ---------- */
 #toast { background: rgba(31, 36, 48, 242); border-radius: 10px; }
 QLabel#toastLabel { color: #f1f3f8; background: transparent; }

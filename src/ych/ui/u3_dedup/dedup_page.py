@@ -1,6 +1,7 @@
 # 去重工作台（U3）：素材勾选 / 三档方案卡片 / 自定义编辑 / 报告视图
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
 from PySide6.QtCore import Qt, Signal
@@ -93,8 +94,15 @@ class DedupPage(QWidget):
             "mid": "多手法组合：推荐日常使用，重复度下降明显",
             "heavy": "强力规避：全部手法叠加，适合重复度很高的素材",
         }
+        cards_row = QHBoxLayout()
+        cards_row.setSpacing(8)
         for pid, label in (("light", "轻度"), ("mid", "中度"),
                            ("heavy", "重度")):
+            card = QWidget()
+            card.setObjectName("presetCard")
+            card_lay = QVBoxLayout(card)
+            card_lay.setContentsMargins(10, 8, 10, 8)
+            card_lay.setSpacing(4)
             radio = QRadioButton(label)
             radio.setProperty("preset_id", pid)
             self.radio_group.addButton(radio)
@@ -103,12 +111,18 @@ class DedupPage(QWidget):
             radio.toggled.connect(
                 lambda on, p=pid: self._apply_preset() if on else None,
             )
-            right_box.addWidget(radio)
+            radio.toggled.connect(
+                lambda on, c=card: _set_card_checked(c, on),
+            )
             desc = QLabel(preset_descs[pid])
             desc.setObjectName("muted")
-            desc.setContentsMargins(24, 0, 0, 0)
-            right_box.addWidget(desc)
+            desc.setWordWrap(True)
+            card_lay.addWidget(radio)
+            card_lay.addWidget(desc)
+            _set_card_checked(card, radio.isChecked())
+            cards_row.addWidget(card, 1)
             self._preset_radios[pid] = radio
+        right_box.addLayout(cards_row)
         self.editor = SchemeEditor(self._registry)
         right_box.addWidget(self.editor, 1)
 
@@ -160,7 +174,10 @@ class DedupPage(QWidget):
         self.asset_list.blockSignals(True)
         self.asset_list.clear()
         for p in paths:
-            item = QListWidgetItem(p)
+            # 只显示文件名，完整路径放 Tooltip（长路径更易读）
+            item = QListWidgetItem(Path(p).name)
+            item.setData(Qt.ItemDataRole.UserRole, p)
+            item.setToolTip(p)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked)
             self.asset_list.addItem(item)
@@ -175,7 +192,8 @@ class DedupPage(QWidget):
         for i in range(self.asset_list.count()):
             item = self.asset_list.item(i)
             if item.checkState() == Qt.CheckState.Checked:
-                out.append(item.text())
+                p = item.data(Qt.ItemDataRole.UserRole)
+                out.append(str(p) if p else item.text())
         return out
 
     def render_report(self, report, before_pct=None, after_pct=None):   # type: ignore[no-untyped-def]
@@ -236,6 +254,14 @@ def make_registry() -> TechniqueRegistry:
     from ych.core.m3_dedup.techniques.registry import make_default_registry
 
     return make_default_registry()
+
+
+def _set_card_checked(card: QWidget, checked: bool) -> None:
+    """卡片选中态 → 动态属性 + 重刷 QSS（presetCard[checked] 规则）。"""
+    card.setProperty("checked", checked)
+    style = card.style()
+    style.unpolish(card)
+    style.polish(card)
 
 
 def default_params(preset_id: str) -> list[dict[str, object]]:
