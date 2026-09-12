@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt
+from PySide6.QtCore import QByteArray, QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import (
     QColor,
     QIcon,
+    QKeySequence,
     QPainter,
     QPen,
     QPixmap,
     QPolygonF,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QDialog,
@@ -213,6 +215,35 @@ class MainWindow(QMainWindow):
 
         self.nav_list.currentRowChanged.connect(self._on_nav_changed)
         self.nav_list.setCurrentRow(0)
+        self._install_shortcuts()
+        self._restore_geometry()
+
+    # ---- 快捷键 / 窗口几何 ----
+    def _install_shortcuts(self) -> None:
+        """Ctrl+1..5 切换工作台。"""
+        for i in range(len(_NAV_KEYS)):
+            shortcut = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
+            shortcut.activated.connect(
+                lambda row=i: self.nav_list.setCurrentRow(row),
+            )
+
+    def _restore_geometry(self) -> None:
+        """恢复上次窗口大小/位置；无记录用默认尺寸。"""
+        try:
+            raw = self._ctx.config().get("win_geometry")
+        except Exception:
+            return
+        if isinstance(raw, str) and raw:
+            self.restoreGeometry(QByteArray.fromHex(raw.encode("ascii")))
+
+    def closeEvent(self, event) -> None:   # type: ignore[no-untyped-def]
+        try:
+            # PySide6 存根把 data() 标为 bytes|bytearray|memoryview 联合类型
+            data = cast(bytes, self.saveGeometry().toHex().data())
+            self._ctx.config().set("win_geometry", data.decode("ascii"))
+        except Exception:
+            logger.warning("窗口几何保存失败", exc_info=True)
+        super().closeEvent(event)
 
     # ---- 页面装配 ----
     def add_page(self, widget: QWidget) -> None:

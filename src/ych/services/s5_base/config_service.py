@@ -69,6 +69,7 @@ class ConfigService(QObject):
         # 界面
         "language": "zh_CN",
         "workdir": "",
+        "win_geometry": "",   # 主窗口大小/位置（saveGeometry 十六进制串）
         # API Key 只在库中存布尔标记，真实值存 keyring
         "pexels_api_key": False,
         "pixabay_api_key": False,

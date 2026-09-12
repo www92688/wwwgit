@@ -1,8 +1,8 @@
 # 结果列表（缩略图卡片：缩略图+时长+画质+大小；勾选批量下载）
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QPointF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -15,6 +15,30 @@ from PySide6.QtWidgets import (
 
 from ych.common.schemas import VideoMeta
 from ych.ui.u6_common.empty_state import attach_empty_state
+from ych.ui.u6_common.thumb_fetcher import ThumbFetcher, thumb_key
+
+_THUMB_ROLE = int(Qt.ItemDataRole.UserRole + 1)   # item → 缩略图缓存键
+_THUMB_SIZE = QSize(76, 46)
+
+
+def _placeholder_icon() -> QIcon:
+    """占位缩略图：浅灰圆角块 + 播放三角。"""
+    pm = QPixmap(_THUMB_SIZE)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor("#eef0f5"))
+    p.drawRoundedRect(pm.rect(), 6, 6)
+    p.setBrush(QColor("#c2c9d6"))
+    cx, cy, r = _THUMB_SIZE.width() / 2, _THUMB_SIZE.height() / 2, 9
+    p.drawPolygon(QPolygonF([
+        QPointF(cx - r * 0.6, cy - r),
+        QPointF(cx - r * 0.6, cy + r),
+        QPointF(cx + r, cy),
+    ]))
+    p.end()
+    return QIcon(pm)
 
 
 def _fmt_size(size: int | None) -> str:
@@ -46,6 +70,9 @@ class ResultList(QWidget):
         root.addLayout(top)
 
         self.list = QListWidget()
+        self.list.setIconSize(_THUMB_SIZE)
+        self._thumbs = ThumbFetcher(self)
+        self._thumbs.fetched.connect(self._on_thumb_fetched)
         attach_empty_state(
             self.list, "还没有搜索结果",
             "在顶部输入关键词，点击「搜索」试试",
@@ -92,9 +119,28 @@ class ResultList(QWidget):
         item.setData(Qt.ItemDataRole.UserRole, meta)
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         item.setCheckState(Qt.CheckState.Checked)
-        item.setSizeHint(QSize(0, 52))
+        item.setSizeHint(QSize(0, 54))
         item.setToolTip(meta.title or meta.video_key)
+        item.setIcon(_placeholder_icon())
+        if meta.thumbnail_url:
+            key = thumb_key(meta.thumbnail_url)
+            item.setData(_THUMB_ROLE, key)
+            self._thumbs.fetch(key, meta.thumbnail_url)
         return item
+
+    def _on_thumb_fetched(self, key: str, image: object) -> None:
+        """后台缩略图到达：按缓存键回填对应卡片图标。"""
+        assert isinstance(image, QImage)
+        icon = QIcon(
+            image.scaled(
+                _THUMB_SIZE, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ),
+        )
+        for i in range(self.list.count()):
+            item = self.list.item(i)
+            if item.data(_THUMB_ROLE) == key:
+                item.setIcon(icon)
 
     def _add_unavailable_note(
         self, unavailable: list[tuple[str, str]] | None,
