@@ -127,10 +127,12 @@ def main() -> int:
     # 必须在 download handler 注册（ctx.download_manager() 已构造）之后执行
     try:
         summary = ctx.scheduler().recover_on_startup()
-        if summary.resumed_downloads or summary.moved_to_fail:
+        if summary.resumed_downloads or summary.moved_to_fail \
+                or summary.removed_orphan_parts:
             logger.info(
-                "崩溃恢复：续传重排 %d 条，转失败列表 %d 条",
+                "崩溃恢复：续传重排 %d 条，转失败列表 %d 条，清理孤儿 .part %d 个",
                 summary.resumed_downloads, summary.moved_to_fail,
+                summary.removed_orphan_parts,
             )
             refresh_assets()
     except Exception:
@@ -145,6 +147,8 @@ def main() -> int:
     coordinator.search_failed.connect(
         lambda _kw, msg: toast(f"搜索失败：{msg}", error=True, timeout_ms=8000),
     )
+    # 搜索失败时恢复「搜索」按钮可用
+    coordinator.search_failed.connect(capture.on_search_failed)
 
     window.show()
     if not window.ensure_workdir():

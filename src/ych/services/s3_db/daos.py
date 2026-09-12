@@ -240,6 +240,29 @@ class DownloadTaskDao:
             )
 
         self._db.write(_w)
+
+    def resume_temp_paths(self) -> list[str]:
+        """非终态行 resume_state 里的 temp_path（.downloading 孤儿清理的保留集）。
+
+        failed/canceled/interrupted 行的 .part 允许后续续传复用（find_resumable），
+        一并保留；success 行的临时文件已被归档移动，不再引用。
+        """
+        rows = self._db.query(
+            "SELECT resume_state FROM download_task"
+            " WHERE resume_state IS NOT NULL AND status != 'success'",
+        )
+        out: list[str] = []
+        for r in rows:
+            try:
+                data = json.loads(r[0])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict):
+                temp = data.get("temp_path")
+                if isinstance(temp, str) and temp:
+                    out.append(temp)
+        return out
+
     def load_resume(self, row: DownloadTaskRow) -> ResumeState | None:
         """行内 resume_state JSON → ResumeState。"""
         if not row.resume_state:

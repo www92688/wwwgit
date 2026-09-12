@@ -2,23 +2,34 @@
 from __future__ import annotations
 
 import logging
+import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from ych.common.fsutil import SafeFileOps
 from ych.services.s3_db.daos import DaosBundle, DownloadTaskRow, ProcessTaskRow
 
 logger = logging.getLogger("ych.m4")
+
+# 孤儿 .part 判定门槛：mtime 距今超过该值才删（防并发实例等极端竞态）
+_ORPHAN_MIN_AGE_S = 3600.0
 
 
 @dataclass
 class CrashRecoverySummary:
     resumed_downloads: int = 0     # 已重新入队续传的下载任务数
     moved_to_fail: int = 0         # 转入失败列表的中断任务数
+    removed_orphan_parts: int = 0  # .downloading/ 清理的孤儿临时文件数
 
 
 class _ResumeCallback(Protocol):
     def __call__(self, row_id: int, meta_json: str, keyword: str) -> None: ...
+
+
+class _WorkdirProvider(Protocol):
+    def __call__(self) -> Path | None: ...
 
 
 class CrashRecovery:
@@ -26,11 +37,18 @@ class CrashRecovery:
 
     - 下载类：置 interrupted；有 resume_state → 回调重建 pending 续传；
       无 resume_state → 写失败记录；
-    - 处理类：置 interrupted → 写失败记录「软件中断，请重新处理」。
+    - 处理类：置 interrupted → 写失败记录「软件中断，请重新处理」；
+    - 顺带清理 .downloading/ 下无任何任务引用的孤儿 .part（下载
+      失败/取消后残留，会随时间累积）。
     """
 
-    def __init__(self, daos: DaosBundle) -> None:
+    def __init__(
+        self,
+        daos: DaosBundle,
+        workdir_provider: _WorkdirProvider | None = None,
+    ) -> None:
         self._daos = daos
+        self._workdir_provider = workdir_provider
 
     def scan(self, resume_cb: _ResumeCallback | None = None) -> CrashRecoverySummary:
         summary = CrashRecoverySummary()
@@ -77,7 +95,49 @@ class CrashRecovery:
             summary.moved_to_fail += 1
             logger.info("process %s moved to fail list", prow.id)
 
+        # ---- .downloading/ 孤儿清理（失败不影响恢复结果）----
+        try:
+            summary.removed_orphan_parts = self._cleanup_orphan_parts()
+        except OSError as exc:
+            logger.warning(".downloading 孤儿清理失败（忽略）：%s", exc)
+
         return summary
+
+    def _cleanup_orphan_parts(self) -> int:
+        """删除 .downloading/ 下无任务引用且超过门槛时长的 .part 文件。
+
+        保留集 = 所有非终态下载行 resume_state.temp_path（含失败/取消，
+        供 find_resumable 续传复用）；其余文件属崩溃残留，没有任何任务
+        会再从它们续传。
+        """
+        provider = self._workdir_provider
+        if provider is None:
+            return 0
+        workdir = provider()
+        if workdir is None:
+            return 0
+        part_dir = Path(workdir) / ".downloading"
+        if not part_dir.is_dir():
+            return 0
+
+        referenced = {
+            os.path.normcase(os.path.abspath(p))
+            for p in self._daos.downloads.resume_temp_paths()
+        }
+        now = time.time()
+        removed = 0
+        for f in part_dir.iterdir():
+            if not f.is_file() or f.suffix != ".part":
+                continue
+            if os.path.normcase(os.path.abspath(str(f))) in referenced:
+                continue
+            if now - f.stat().st_mtime < _ORPHAN_MIN_AGE_S:
+                continue
+            SafeFileOps.safe_delete(f)
+            removed += 1
+        if removed:
+            logger.info(".downloading 清理孤儿 .part %d 个", removed)
+        return removed
 
     @staticmethod
     def _rebuild_payload(prow: ProcessTaskRow) -> dict[str, object]:

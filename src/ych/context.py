@@ -202,7 +202,13 @@ class AppContext:
             from ych.core.m4_scheduler.task_scheduler import TaskScheduler
 
             pool = QThreadPool.globalInstance()
-            sched = TaskScheduler(pool, self.config(), self.daos())
+            sched = TaskScheduler(
+                pool, self.config(), self.daos(),
+                # .downloading 孤儿清理定位工作目录；未设置时返回 None 跳过
+                workdir_provider=lambda: (
+                    self.workdirs().workdir() if self.workdirs().is_set() else None
+                ),
+            )
             self._cache["scheduler"] = sched
         return cast("TaskScheduler", self._cache_cast("scheduler"))
 

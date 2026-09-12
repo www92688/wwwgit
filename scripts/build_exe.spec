@@ -41,6 +41,14 @@ if models.exists():
     for f in models.glob("*.onnx"):
         datas.append((str(f), "runtime/models"))
 
+# 调色预设（color_filter 经 bundle_data_root() 定位 _internal/runtime/luts）
+luts = ROOT / "runtime" / "luts"
+if luts.exists():
+    for f in luts.glob("*.cube"):
+        datas.append((str(f), "runtime/luts"))
+else:
+    print("[build_exe.spec] WARN 缺少 runtime/luts（调色预设将退化为 colorbalance 近似）")
+
 i18n_dir = ROOT / "i18n"
 if i18n_dir.exists():
     for qm in i18n_dir.glob("*.qm"):

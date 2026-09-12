@@ -116,6 +116,7 @@ class TaskScheduler(QObject):
         pool: QThreadPool,
         config: ConfigService,
         daos: DaosBundle,
+        workdir_provider: Callable[[], Path | None] | None = None,
     ) -> None:
         super().__init__()
         self._pool = pool
@@ -129,7 +130,7 @@ class TaskScheduler(QObject):
         self._process_sem = threading.BoundedSemaphore(process_conc)
         self._retry = RetryController(config)
         self._fails = FailRecordManager(daos.fails)
-        self._recovery = CrashRecovery(daos)
+        self._recovery = CrashRecovery(daos, workdir_provider)
         self._retry_requested.connect(self._do_resubmit)
         self._batch_done: dict[str, int] = defaultdict(int)
         self._batch_total: dict[str, int] = defaultdict(int)

@@ -72,16 +72,19 @@ def repair_frame(
         if not (span.t_start <= ts <= span.t_end):
             continue
         x0, y0, x1, y1 = pixel_rect(span.bbox, size[0], size[1])
-        region = frame[y0:y1, x0:x1]
-        if region.size == 0:
+        if frame[y0:y1, x0:x1].size == 0:
             continue
         need_refresh = (
             si not in cache
             or frame_idx - last_refresh.get(si, -10**9) >= CACHE_REFRESH_FRAMES
         )
         if need_refresh:
-            mask = np.full(region.shape[:2], 255, dtype=np.uint8)
-            repaired = provider.inpaint(region, mask)
+            # 掩码只标记 bbox、整帧交给 provider：TELEA/LaMa 都要靠掩码外的
+            # 邻域像素当修复上下文。若按 bbox 精确裁剪并全掩码传入，
+            # inpaint 没有任何已知像素可扩散，结果恒等于原图（无效修复）。
+            mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+            mask[y0:y1, x0:x1] = 255
+            repaired = provider.inpaint(frame, mask)
             cache[si] = np.array(repaired, dtype=np.uint8, copy=True)
             last_refresh[si] = frame_idx
             stats.inpaint_calls += 1
@@ -89,7 +92,7 @@ def repair_frame(
         else:
             repaired = cache[si]
             stats.cache_hits += 1
-        frame[y0:y1, x0:x1] = repaired[: y1 - y0, : x1 - x0]
+        frame[y0:y1, x0:x1] = repaired[y0:y1, x0:x1]
     return frame
 
 
