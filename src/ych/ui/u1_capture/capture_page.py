@@ -133,6 +133,11 @@ class CapturePage(QWidget):
             config is not None and hasattr(config, "get_typed")
         ) else 20
         self.limit_spin.setValue(default_limit)
+        # 调整即持久化，下次启动沿用
+        if config is not None and hasattr(config, "set"):
+            self.limit_spin.valueChanged.connect(
+                lambda value: config.set("download_limit", int(value)),
+            )
         bottom.addWidget(self.limit_spin)
         self.btn_open_files = QPushButton(self.tr("查看文件"))
         self.btn_open_files.setObjectName("secondaryBtn")

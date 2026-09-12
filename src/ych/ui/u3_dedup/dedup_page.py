@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -48,11 +48,13 @@ class DedupPage(QWidget):
         self,
         registry: TechniqueRegistry | None = None,
         scheme_manager: _SchemeManagerLike | None = None,
+        config: Any | None = None,          # 档位记忆（可选）
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._registry = registry or make_registry()
         self._schemes = scheme_manager
+        self._config = config
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -107,9 +109,12 @@ class DedupPage(QWidget):
             radio.setProperty("preset_id", pid)
             self.radio_group.addButton(radio)
             radio.setChecked(pid == "mid")
-            # 点击档位立即套用对应预设，而非等"套用预设"按钮
+            # 点击档位立即套用对应预设，而非等"套用预设"按钮；并记忆档位
             radio.toggled.connect(
                 lambda on, p=pid: self._apply_preset() if on else None,
+            )
+            radio.toggled.connect(
+                lambda on, p=pid: self._save_preset(p) if on else None,
             )
             radio.toggled.connect(
                 lambda on, c=card: _set_card_checked(c, on),
@@ -154,9 +159,26 @@ class DedupPage(QWidget):
 
         # 勾选数量反馈到开始按钮
         self.asset_list.itemChanged.connect(lambda _item: self._refresh_btns())
-        # 初始套用默认档（中度），保证编辑器非空
+        # 初始套用默认档（中度），保证编辑器非空；有记忆则恢复上次档位
         self._apply_preset()
+        if config is not None:
+            saved = self._saved_preset()
+            if saved and saved in self._preset_radios:
+                self._preset_radios[saved].setChecked(True)
         self._refresh_btns()
+
+    def _saved_preset(self) -> str:
+        if self._config is None:
+            return ""
+        try:
+            saved = self._config.get("dedup_preset")
+        except Exception:
+            return ""
+        return str(saved) if isinstance(saved, str) else ""
+
+    def _save_preset(self, pid: str) -> None:
+        if self._config is not None:
+            self._config.set("dedup_preset", pid)
 
     def _refresh_btns(self) -> None:
         n = len(self.checked_paths())       # 实际勾选数

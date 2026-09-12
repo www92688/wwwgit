@@ -97,9 +97,11 @@ def main() -> int:
     preprocess = PreprocessPage(
         scheduler=cast(Any, ctx.scheduler()),
         frame_loader=lambda src: _load_preview_frame(ctx, src),
+        config=ctx.config(),
     )
     dedup = DedupPage(
         registry=ctx.technique_registry(), scheme_manager=ctx.scheme_manager(),
+        config=ctx.config(),
     )
     compare_srcs: dict[str, list[str]] = {}
     dedup.analyze_requested.connect(

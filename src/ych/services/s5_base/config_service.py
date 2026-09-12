@@ -48,6 +48,9 @@ class ConfigService(QObject):
         "ai_services": {},
         # 默认 AI 服务 id；空 = 未配置（关键词扩展等 AI 功能引导去设置页）
         "ai_default_service": "",
+        # 工作台选项记忆（预处理选项 JSON / 去重档位 id）
+        "preprocess_options": {},
+        "dedup_preset": "",
         # 自动对比候选
         "compare_candidates_per_platform": 20,
         "candidate_cache_ttl_days": 7,

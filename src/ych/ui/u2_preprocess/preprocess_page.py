@@ -36,6 +36,7 @@ class PreprocessPage(QWidget):
         self,
         scheduler: _SchedulerLike | None = None,
         frame_loader: Callable[[str], str] | None = None,   # 素材→预览帧图
+        config: Any | None = None,                          # 选项记忆
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -79,7 +80,7 @@ class PreprocessPage(QWidget):
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
-        self.option_panel = OptionPanel()
+        self.option_panel = OptionPanel(config=config)
         right_layout.addWidget(self.option_panel)
         self.canvas = BoxSelectCanvas()
         right_layout.addWidget(self.canvas, 1)
