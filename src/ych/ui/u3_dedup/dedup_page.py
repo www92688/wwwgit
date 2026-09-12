@@ -88,6 +88,11 @@ class DedupPage(QWidget):
         right_box.addWidget(QLabel(self.tr("去重方案")))
         self.radio_group = QButtonGroup(self)
         self._preset_radios: dict[str, QRadioButton] = {}
+        preset_descs = {
+            "light": "保守调整：轻度镜像/微裁切/轻调色，画质损失最小",
+            "mid": "多手法组合：推荐日常使用，重复度下降明显",
+            "heavy": "强力规避：全部手法叠加，适合重复度很高的素材",
+        }
         for pid, label in (("light", "轻度"), ("mid", "中度"),
                            ("heavy", "重度")):
             radio = QRadioButton(label)
@@ -99,6 +104,10 @@ class DedupPage(QWidget):
                 lambda on, p=pid: self._apply_preset() if on else None,
             )
             right_box.addWidget(radio)
+            desc = QLabel(preset_descs[pid])
+            desc.setObjectName("muted")
+            desc.setContentsMargins(24, 0, 0, 0)
+            right_box.addWidget(desc)
             self._preset_radios[pid] = radio
         self.editor = SchemeEditor(self._registry)
         right_box.addWidget(self.editor, 1)

@@ -68,6 +68,7 @@ class ConfigService(QObject):
         "readonly_protect_raw": True,
         # 界面
         "language": "zh_CN",
+        "theme": "system",   # 浅色 / 深色 / 跟随系统
         "workdir": "",
         "win_geometry": "",   # 主窗口大小/位置（saveGeometry 十六进制串）
         # API Key 只在库中存布尔标记，真实值存 keyring

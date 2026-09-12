@@ -45,8 +45,9 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     app = QApplication(sys.argv)
-    qss = ROOT / "src" / "ych" / "ui" / "u6_common" / "theme.qss"
-    app.setStyleSheet(qss.read_text(encoding="utf-8"))
+    from ych.ui.u6_common.theme import apply_theme
+
+    apply_theme(app, "light")
 
     from ych.services.s5_base.config_service import ConfigService
     from ych.ui.u0_main.main_window import MainWindow
@@ -153,6 +154,28 @@ def main() -> int:
     app.processEvents()
     app.processEvents()
     window.grab().save(str(out_dir / "0_main.png"))
+
+    # ---- 深色主题对照（主窗口 + 去重页 + 设置页）----
+    from ych.ui.u6_common.theme import apply_theme
+
+    apply_theme(app, "dark")
+    app.processEvents()
+    window.grab().save(str(out_dir / "6_main_dark.png"))
+    dedup.resize(1080, 700)
+    dedup.show()
+    app.processEvents()
+    dedup.grab().save(str(out_dir / "7_dedup_dark.png"))
+    settings.resize(1080, 700)
+    settings.show()
+    app.processEvents()
+    settings.grab().save(str(out_dir / "8_settings_dark.png"))
+    # 设置页放进主窗口栈内抓图：验证 scroll viewport 在真实窗口下无浅色底
+    window.add_page(settings)
+    window.nav_list.setCurrentRow(5 if window.nav_list.count() > 5 else 1)
+    app.processEvents()
+    window.grab().save(str(out_dir / "9_settings_dark_inwin.png"))
+    window.nav_list.setCurrentRow(0)
+    apply_theme(app, "light")   # 还原，避免影响后续手动运行
     print("saved to", out_dir)
     return 0
 

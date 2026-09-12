@@ -142,6 +142,18 @@ class SettingsPage(QWidget):
         idx = self.lang_combo.findText(current)
         if idx >= 0:
             self.lang_combo.setCurrentIndex(idx)
+
+        # 界面主题：跟随系统 / 浅色 / 深色（切换即时生效）
+        self.theme_combo = QComboBox()
+        for label, val in (("跟随系统", "system"), ("浅色", "light"),
+                           ("深色", "dark")):
+            self.theme_combo.addItem(label, val)
+        saved_theme = str(config.get("theme") or "system")
+        t_idx = self.theme_combo.findData(saved_theme)
+        if t_idx >= 0:
+            self.theme_combo.setCurrentIndex(t_idx)
+        self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
+
         row_dir = QHBoxLayout()
         self.workdir_edit = QLineEdit(str(config.get("workdir") or ""))
         btn_pick = QPushButton(self.tr("选择…"))
@@ -150,6 +162,7 @@ class SettingsPage(QWidget):
         row_dir.addWidget(self.workdir_edit)
         row_dir.addWidget(btn_pick)
         form_g.addRow(self.tr("界面语言"), self.lang_combo)
+        form_g.addRow(self.tr("界面主题"), self.theme_combo)
         form_g.addRow(self.tr("工作目录"), row_dir)
         root.addWidget(general)
 
@@ -846,6 +859,21 @@ class SettingsPage(QWidget):
         self._config.set("language", locale)
         if self._i18n is not None:
             self._i18n.switch_locale(locale)
+
+    def _on_theme_changed(self, index: int) -> None:
+        """切换主题：持久化并即时生效（无需重启）。"""
+        from typing import cast
+
+        from PySide6.QtWidgets import QApplication
+
+        from ych.ui.u6_common.theme import apply_theme
+
+        mode = self.theme_combo.itemData(index)
+        if not isinstance(mode, str):
+            return
+        self._config.set("theme", mode)
+        app = cast(QApplication, QApplication.instance())
+        apply_theme(app, mode)
 
     def _on_config_changed(self, key: str, value: object) -> None:
         """config.changed → 控件回填（避免回环：仅当值不同才写控件）。"""

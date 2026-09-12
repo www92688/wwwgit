@@ -23,15 +23,15 @@ _THUMB_SIZE = QSize(76, 46)
 
 
 def _placeholder_icon() -> QIcon:
-    """占位缩略图：浅灰圆角块 + 播放三角。"""
+    """占位缩略图：半透明中性圆角块 + 播放三角（深浅主题通用）。"""
     pm = QPixmap(_THUMB_SIZE)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(QColor("#eef0f5"))
+    p.setBrush(QColor(127, 140, 170, 52))
     p.drawRoundedRect(pm.rect(), 6, 6)
-    p.setBrush(QColor("#c2c9d6"))
+    p.setBrush(QColor(127, 140, 170, 150))
     cx, cy, r = _THUMB_SIZE.width() / 2, _THUMB_SIZE.height() / 2, 9
     p.drawPolygon(QPolygonF([
         QPointF(cx - r * 0.6, cy - r),

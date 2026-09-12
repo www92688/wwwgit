@@ -58,10 +58,12 @@ class DownloadQueueView(QWidget):
         self.table.setHorizontalHeaderLabels(
             ["平台", "视频", "状态", "进度", "操作"],
         )
+        self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
         )
+        self.table.setAlternatingRowColors(True)
         root.addWidget(self.table, 1)
         hint = QLabel("下载队列（断点续传，中断后可恢复；进行中的任务可取消）")
         hint.setObjectName("muted")

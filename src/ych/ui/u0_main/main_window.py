@@ -220,7 +220,6 @@ class MainWindow(QMainWindow):
 
         nav_box = QWidget()
         nav_box.setObjectName("sideBar")
-        nav_box.setStyleSheet("#sideBar { background: #232937; }")
         nav_layout = _V(nav_box)
         nav_layout.setContentsMargins(0, 14, 0, 12)
         nav_layout.setSpacing(10)
@@ -231,12 +230,9 @@ class MainWindow(QMainWindow):
         head_row.setContentsMargins(18, 2, 12, 6)
         head_row.setSpacing(8)
         mark = QLabel("源")
+        mark.setObjectName("sideMark")
         mark.setFixedSize(26, 26)
         mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        mark.setStyleSheet(
-            "background: #4c6ef5; color: white; border-radius: 7px;"
-            "font-weight: 700; font-size: 14px;"
-        )
         title_col = QVBoxLayout()
         title_col.setSpacing(0)
         t = QLabel(self.tr("源重构"))

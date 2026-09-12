@@ -33,12 +33,10 @@ def main() -> int:
     locale = str(ctx.config().get("language") or "zh_CN")
     ctx.i18n().switch_locale(locale)
 
-    # 主题 + 翻译装配
-    from ych.common.fsutil import bundle_root
+    # 主题 + 翻译装配（theme=light/dark/system，设置页可运行时切换）
+    from ych.ui.u6_common.theme import apply_theme
 
-    qss = bundle_root() / "ui" / "u6_common" / "theme.qss"
-    if qss.exists():
-        app.setStyleSheet(qss.read_text(encoding="utf-8"))
+    apply_theme(app, str(ctx.config().get("theme") or "system"))
 
     # 业务 handler 注册（preprocess/dedup/compare）
     ctx.register_task_handlers()
