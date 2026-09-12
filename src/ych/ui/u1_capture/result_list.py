@@ -1,19 +1,31 @@
 # 结果列表（缩略图卡片：缩略图+时长+画质+大小；勾选批量下载）
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import QPointF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap, QPolygonF
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QIcon,
+    QImage,
+    QPainter,
+    QPixmap,
+    QPolygonF,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from ych.common.schemas import VideoMeta
+from ych.ui.u6_common.context_actions import copy_to_clipboard
 from ych.ui.u6_common.empty_state import attach_empty_state
 from ych.ui.u6_common.platform_labels import platform_label
 from ych.ui.u6_common.thumb_fetcher import ThumbFetcher, thumb_key
@@ -83,6 +95,8 @@ class ResultList(QWidget):
         self.select_all.toggled.connect(self._toggle_all)
         self.list.itemChanged.connect(lambda _item: self._refresh_footer())
         self.list.itemDoubleClicked.connect(self._open_source_page)
+        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._show_item_menu)
 
     # ---- 数据 ----
     def set_results(self, metas: list[VideoMeta], keyword: str,
@@ -211,6 +225,23 @@ class ResultList(QWidget):
         refresh = getattr(self.list, "_refresh_empty_state", None)
         if refresh is not None:
             refresh()
+
+    def _show_item_menu(self, pos: Any) -> None:
+        """右键卡片：打开来源页 / 复制下载链接。"""
+        item = self.list.itemAt(pos)
+        data = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+        if not isinstance(data, VideoMeta):
+            return
+        from PySide6.QtCore import QUrl
+
+        menu = QMenu(self)
+        act_open = menu.addAction(self.tr("打开来源页"))
+        act_copy = menu.addAction(self.tr("复制下载链接"))
+        chosen = menu.exec(self.list.viewport().mapToGlobal(pos))
+        if chosen is act_open and data.page_url:
+            QDesktopServices.openUrl(QUrl(data.page_url))
+        elif chosen is act_copy and data.download_url:
+            copy_to_clipboard(data.download_url)
 
     # ---- 槽 ----
     def _open_source_page(self, item: QListWidgetItem) -> None:

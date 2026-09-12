@@ -4,13 +4,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Protocol
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QRadioButton,
     QVBoxLayout,
@@ -20,6 +22,10 @@ from PySide6.QtWidgets import (
 from ych.core.m3_dedup.techniques.registry import TechniqueRegistry
 from ych.ui.u3_dedup.report_view import ReportView
 from ych.ui.u3_dedup.scheme_editor import SchemeEditor
+from ych.ui.u6_common.context_actions import (
+    copy_to_clipboard,
+    reveal_in_file_manager,
+)
 from ych.ui.u6_common.empty_state import attach_empty_state
 from ych.ui.u6_common.toast import Toast
 
@@ -159,6 +165,13 @@ class DedupPage(QWidget):
 
         # 勾选数量反馈到开始按钮
         self.asset_list.itemChanged.connect(lambda _item: self._refresh_btns())
+        # 右键：定位/复制/系统播放器打开
+        self.asset_list.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu,
+        )
+        self.asset_list.customContextMenuRequested.connect(
+            self._show_asset_menu,
+        )
         # 初始套用默认档（中度），保证编辑器非空；有记忆则恢复上次档位
         self._apply_preset()
         if config is not None:
@@ -217,6 +230,23 @@ class DedupPage(QWidget):
                 p = item.data(Qt.ItemDataRole.UserRole)
                 out.append(str(p) if p else item.text())
         return out
+
+    def _show_asset_menu(self, pos: Any) -> None:
+        item = self.asset_list.itemAt(pos)
+        if item is None:
+            return
+        path = str(item.data(Qt.ItemDataRole.UserRole) or item.text())
+        menu = QMenu(self)
+        act_reveal = menu.addAction(self.tr("打开所在文件夹"))
+        act_copy = menu.addAction(self.tr("复制路径"))
+        act_play = menu.addAction(self.tr("用系统播放器打开"))
+        chosen = menu.exec(self.asset_list.viewport().mapToGlobal(pos))
+        if chosen is act_reveal:
+            reveal_in_file_manager(path)
+        elif chosen is act_copy:
+            copy_to_clipboard(path)
+        elif chosen is act_play:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def render_report(self, report, before_pct=None, after_pct=None):   # type: ignore[no-untyped-def]
         self.report_view.show_report(report, before_pct, after_pct)

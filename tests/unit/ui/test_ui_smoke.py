@@ -521,3 +521,40 @@ def test_download_queue_cancel_button(qapp, qtbot) -> None:
     assert cancels == [7]
     view.on_item_updated(7, "success", 1.0, "")
     assert not btn.isEnabled()
+
+
+def test_preprocess_tree_double_click_previews(
+    qapp, qtbot, tmp_path,
+) -> None:
+    """双击叶子素材 → 画布加载该素材预览帧；双击分类节点不触发。"""
+    from PySide6.QtGui import QImage
+
+    from ych.services.s3_db.daos import AssetRow
+    from ych.ui.u2_preprocess.preprocess_page import PreprocessPage
+
+    png = tmp_path / "frame.png"
+    img = QImage(4, 4, QImage.Format.Format_ARGB32)
+    img.fill(0)
+    assert img.save(str(png))
+
+    page = PreprocessPage(scheduler=FakeScheduler(),
+                          frame_loader=lambda src: str(png))
+    qtbot.addWidget(page)
+    page.set_assets([AssetRow(
+        id=1, path=r"C:\wd\a.mp4", kind="raw", size_bytes=1,
+        duration_s=15.0, width=1280, height=720, mtime=0.0,
+        category="砍木头视频", keyword="砍木头视频",
+        date_str="2026-09-05", indexed_at="",
+    )])
+
+    shown: list[str] = []
+    page.load_frame_image = shown.append   # type: ignore[method-assign]
+
+    cat = page.asset_tree.topLevelItem(0)
+    page._on_tree_double_click(cat, 0)     # 分类节点：不触发
+    assert shown == []
+
+    leaf = cat.child(0).child(0)
+    page._on_tree_double_click(leaf, 0)    # 叶子：加载预览帧
+    qtbot.waitUntil(lambda: bool(shown), timeout=5000)
+    assert shown == [str(png)]

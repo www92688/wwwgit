@@ -149,93 +149,108 @@
 <context>
     <name>DedupPage</name>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="67" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="73" />
         <source>左侧勾选素材</source>
         <translation type="finished">左侧勾选素材</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="68" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="74" />
         <source>「分析重复度」后选方案（轻/中/重度或自定义）</source>
         <translation type="finished">「分析重复度」后选方案（轻/中/重度或自定义）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="69" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="75" />
         <source>「开始去重」提交</source>
         <translation type="finished">「开始去重」提交</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="76" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="82" />
         <source>待去重素材</source>
         <translation type="finished">待去重素材</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="79" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="85" />
         <source>暂无素材</source>
         <translation type="finished">暂无素材</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="80" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="86" />
         <source>先到「采集工作台」下载素材，
 或把视频文件放入工作目录</source>
         <translation type="finished">先到「采集工作台」下载素材，
 或把视频文件放入工作目录</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="83" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="89" />
         <source>全选</source>
         <translation type="finished">全选</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="91" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="97" />
         <source>去重方案</source>
         <translation type="finished">去重方案</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="95" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="101" />
         <source>保守调整：轻度镜像/微裁切/轻调色，画质损失最小</source>
         <translation type="finished">保守调整：轻度镜像/微裁切/轻调色，画质损失最小</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="96" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="102" />
         <source>多手法组合：推荐日常使用，重复度下降明显</source>
         <translation type="finished">多手法组合：推荐日常使用，重复度下降明显</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="97" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="103" />
         <source>强力规避：全部手法叠加，适合重复度很高的素材</source>
         <translation type="finished">强力规避：全部手法叠加，适合重复度很高的素材</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="135" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="141" />
         <source>套用预设</source>
         <translation type="finished">套用预设</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="138" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="144" />
         <source>预设→自定义微调</source>
         <translation type="finished">预设→自定义微调</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="146" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="186" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="152" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="199" />
         <source>分析重复度</source>
         <translation type="finished">分析重复度</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="148" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="189" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="154" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="202" />
         <source>开始去重</source>
         <translation type="finished">开始去重</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="186" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="199" />
         <source>分析重复度（{}）</source>
         <translation type="finished">分析重复度（{}）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="189" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="202" />
         <source>开始去重（{}）</source>
         <translation type="finished">开始去重（{}）</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="240" />
+        <source>打开所在文件夹</source>
+        <translation type="finished">打开所在文件夹</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="241" />
+        <source>复制路径</source>
+        <translation type="finished">复制路径</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="242" />
+        <source>用系统播放器打开</source>
+        <translation type="finished">用系统播放器打开</translation>
     </message>
 </context>
 <context>
@@ -526,57 +541,80 @@
 <context>
     <name>PreprocessPage</name>
     <message>
-        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="54" />
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="56" />
         <source>左侧勾选素材</source>
         <translation type="finished">左侧勾选素材</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="55" />
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="57" />
         <source>右侧选择处理项（手动模式可预览后框选区域）</source>
         <translation type="finished">右侧选择处理项（手动模式可预览后框选区域）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="56" />
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="58" />
         <source>「开始处理」提交</source>
         <translation type="finished">「开始处理」提交</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="62" />
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="64" />
         <source>暂无素材</source>
         <translation type="finished">暂无素材</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="63" />
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="65" />
         <source>先到「采集工作台」下载素材，
 或把视频文件放入工作目录</source>
         <translation type="finished">先到「采集工作台」下载素材，
 或把视频文件放入工作目录</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="66" />
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="67" />
         <source>全选</source>
         <translation type="finished">全选</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="68" />
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="69" />
         <source>全不选</source>
         <translation type="finished">全不选</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="91" />
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="92" />
         <source>预览框选帧</source>
         <translation type="finished">预览框选帧</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="94" />
-        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="118" />
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="95" />
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="127" />
         <source>开始处理</source>
         <translation type="finished">开始处理</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="118" />
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="127" />
         <source>开始处理（{}）</source>
         <translation type="finished">开始处理（{}）</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="239" />
+        <source>打开所在文件夹</source>
+        <translation type="finished">打开所在文件夹</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u2_preprocess/preprocess_page.py" line="240" />
+        <source>复制路径</source>
+        <translation type="finished">复制路径</translation>
+    </message>
+</context>
+<context>
+    <name>ResultList</name>
+    <message>
+        <location filename="../src/ych/ui/u1_capture/result_list.py" line="238" />
+        <source>打开来源页</source>
+        <translation type="finished">打开来源页</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u1_capture/result_list.py" line="239" />
+        <source>复制下载链接</source>
+        <translation type="finished">复制下载链接</translation>
     </message>
 </context>
 <context>

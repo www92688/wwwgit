@@ -4,9 +4,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QMenu,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
 from ych.ui.u2_preprocess.asset_tree import AssetTree
 from ych.ui.u2_preprocess.box_select_canvas import BoxSelectCanvas
 from ych.ui.u2_preprocess.option_panel import OptionPanel
+from ych.ui.u6_common.context_actions import copy_to_clipboard, reveal_in_file_manager
 from ych.ui.u6_common.empty_state import attach_empty_state
 from ych.ui.u6_common.toast import Toast
 
@@ -62,7 +64,6 @@ class PreprocessPage(QWidget):
             self.asset_tree, self.tr("暂无素材"),
             self.tr("先到「采集工作台」下载素材，\n或把视频文件放入工作目录"),
         )
-        self.asset_tree = AssetTree()
         btn_all = QPushButton(self.tr("全选"))
         btn_all.setObjectName("secondaryBtn")
         btn_none = QPushButton(self.tr("全不选"))
@@ -104,6 +105,14 @@ class PreprocessPage(QWidget):
         # 勾选数量反馈到开始按钮
         self.asset_tree.selection_changed.connect(self._refresh_start_btn)
         self._refresh_start_btn()
+        # 双击叶子素材 → 画布预览该素材帧；右键定位/复制路径
+        self.asset_tree.itemDoubleClicked.connect(self._on_tree_double_click)
+        self.asset_tree.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu,
+        )
+        self.asset_tree.customContextMenuRequested.connect(
+            self._show_tree_menu,
+        )
 
     # ---- 数据 ----
     def set_assets(self, rows: list[Any]) -> None:
@@ -189,24 +198,51 @@ class PreprocessPage(QWidget):
     # ---- 预览框选帧 ----
     def _on_preview(self) -> None:
         """取第一个勾选素材的中间帧显示到画布，供手动框选。"""
-        from ych.ui.u6_common.llm_worker import LlmWorker
-
-        if self._frame_loader is None or self._preview_worker is not None:
-            return
         srcs = self.asset_tree.checked_files()
         if not srcs:
             Toast.show_message(self, "请先在左侧勾选素材，再预览框选帧")
             return
+        self._load_frame_async(srcs[0])
+
+    def _load_frame_async(self, src: str) -> None:
+        """后台抽帧 → 画布显示；进行中时忽略重复请求。"""
+        from ych.ui.u6_common.llm_worker import LlmWorker
+
+        if self._frame_loader is None or self._preview_worker is not None:
+            return
         self.btn_preview.setEnabled(False)
-        src = srcs[0]
         loader = self._frame_loader
-        assert loader is not None
         worker = LlmWorker(lambda: loader(src))
         self._preview_worker = worker
         worker.done.connect(self._on_preview_done)      # 绑定方法→回 UI 线程
         worker.failed.connect(self._on_preview_failed)
         worker.finished.connect(worker.deleteLater)
         worker.start()
+
+    def _on_tree_double_click(self, item: Any, _column: int) -> None:
+        """双击叶子素材：画布预览该素材帧（分类/关键词节点忽略）。"""
+        if item.childCount() > 0:
+            return
+        src = item.data(0, Qt.ItemDataRole.UserRole)
+        if src:
+            self._load_frame_async(str(src))
+
+    def _show_tree_menu(self, pos: Any) -> None:
+        """叶子右键：定位文件 / 复制路径。"""
+        item = self.asset_tree.itemAt(pos)
+        if item is None or item.childCount() > 0:
+            return
+        src = item.data(0, Qt.ItemDataRole.UserRole)
+        if not src:
+            return
+        menu = QMenu(self)
+        act_reveal = menu.addAction(self.tr("打开所在文件夹"))
+        act_copy = menu.addAction(self.tr("复制路径"))
+        chosen = menu.exec(self.asset_tree.viewport().mapToGlobal(pos))
+        if chosen is act_reveal:
+            reveal_in_file_manager(str(src))
+        elif chosen is act_copy:
+            copy_to_clipboard(str(src))
 
     def _restore_preview(self) -> None:
         self.btn_preview.setEnabled(True)
