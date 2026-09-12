@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from ych.ui.u2_preprocess.asset_tree import AssetTree
 from ych.ui.u2_preprocess.box_select_canvas import BoxSelectCanvas
 from ych.ui.u2_preprocess.option_panel import OptionPanel
+from ych.ui.u6_common.empty_state import attach_empty_state
 from ych.ui.u6_common.toast import Toast
 
 
@@ -42,8 +43,15 @@ class PreprocessPage(QWidget):
         self._frame_loader = frame_loader
         self._preview_worker: Any | None = None
         root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
 
         split = QSplitter()
+        self.asset_tree = AssetTree()
+        attach_empty_state(
+            self.asset_tree, "暂无素材",
+            "先到「采集工作台」下载素材，\n或把视频文件放入工作目录",
+        )
         self.asset_tree = AssetTree()
         btn_all = QPushButton(self.tr("全选"))
         btn_all.setObjectName("secondaryBtn")
@@ -73,20 +81,33 @@ class PreprocessPage(QWidget):
         self.btn_preview = QPushButton("预览框选帧")
         self.btn_preview.setObjectName("secondaryBtn")
         self.btn_preview.clicked.connect(self._on_preview)
-        btn_start = QPushButton(self.tr("开始处理"))
-        btn_start.clicked.connect(self._on_start)
+        self.btn_start = QPushButton(self.tr("开始处理"))
+        self.btn_start.clicked.connect(self._on_start)
         bottom.addWidget(self.btn_preview)
         bottom.addStretch(1)
-        bottom.addWidget(btn_start)
+        bottom.addWidget(self.btn_start)
         root.addLayout(bottom)
 
         # 手动模式：画布新区域注册到面板上下文；清空按钮联动画布
         self.canvas.regions_changed.connect(self._sync_manual_regions)
         self.option_panel.clear_requested.connect(self.canvas.clear_regions)
+        # 勾选数量反馈到开始按钮
+        self.asset_tree.selection_changed.connect(self._refresh_start_btn)
+        self._refresh_start_btn()
 
     # ---- 数据 ----
     def set_assets(self, rows: list[Any]) -> None:
         self.asset_tree.set_assets(rows)
+        refresh_empty = getattr(self.asset_tree, "_refresh_empty_state", None)
+        if refresh_empty is not None:
+            refresh_empty()
+
+    def _refresh_start_btn(self) -> None:
+        n = len(self.asset_tree.checked_files())
+        self.btn_start.setText(
+            self.tr("开始处理（{}）").format(n) if n else self.tr("开始处理"),
+        )
+        self.btn_start.setEnabled(n > 0)
 
     def load_frame_image(self, image_path: str) -> None:
         self.canvas.set_image(image_path)

@@ -82,8 +82,8 @@ class CapturePage(QWidget):
             self.tr("输入关键词，多个用逗号分隔")
         )
         self.keyword_edit.returnPressed.connect(self._on_search)
-        btn_search = QPushButton(self.tr("搜索"))
-        btn_search.clicked.connect(self._on_search)
+        self.btn_search = QPushButton(self.tr("搜索"))
+        self.btn_search.clicked.connect(self._on_search)
         self.btn_ai_expand = QPushButton(self.tr("AI 扩展"))
         self.btn_ai_expand.setToolTip(
             self.tr("用 AI 围绕第一个关键词扩展搜索词（需在设置页配置 AI 服务）")
@@ -93,7 +93,7 @@ class CapturePage(QWidget):
         top.addWidget(self.keyword_edit, 1)
         top.addWidget(self.history_combo)
         top.addWidget(self.btn_ai_expand)
-        top.addWidget(btn_search)
+        top.addWidget(self.btn_search)
         root.addLayout(top)
 
         # ---- 中部：平台分区 + 筛选 ----
@@ -207,11 +207,18 @@ class CapturePage(QWidget):
             Toast.show_message(self, "请至少勾选一个采集平台")
             return
         Toast.show_message(self, f"正在搜索：{'、'.join(keywords)} …")
+        self._set_searching(True)
         self.result_list.clear_results()
         self._coordinator.search_multi(
             keywords, self.filter_panel.to_filters(), 30, platform_ids=selected,
         )
         # 历史词由 SearchCoordinator 按词+实际平台记录（此处不再重复记录）
+
+    def _set_searching(self, searching: bool) -> None:
+        """搜索进行中：按钮禁用防重复提交，文案给出状态反馈。"""
+        self.btn_search.setEnabled(not searching)
+        self.btn_search.setText(self.tr("搜索中…") if searching
+                                else self.tr("搜索"))
 
     # ---- AI 关键词扩展 ----
     def _on_ai_expand(self) -> None:
@@ -352,11 +359,16 @@ class CapturePage(QWidget):
         self.foreign_master.setChecked(True)
 
     def on_search_finished(self, result_set: Any) -> None:
+        self._set_searching(False)
         # 批量搜索逐词到达：追加而非覆盖（否则只看得到最后一个词的结果）
         self.result_list.append_results(
             list(result_set.items), result_set.keyword,
             list(result_set.unavailable_platforms),
         )
+
+    def on_search_failed(self, _keyword: str, _msg: str) -> None:
+        """搜索失败：恢复搜索按钮（失败详情由 app 层 Toast 提示）。"""
+        self._set_searching(False)
 
     def _on_download(self, metas: list[Any], keyword: str) -> None:
         if self._dm is None:

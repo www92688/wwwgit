@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QLabel,
     QProgressBar,
@@ -21,6 +22,17 @@ _STATE_TEXT = {
     "skipped": "已跳过",
     "interrupted": "已中断",
     "canceled": "已取消",
+}
+
+# 状态语义色：成功绿 / 失败红 / 进行中蓝 / 等待灰 / 跳过橙
+_STATE_COLOR = {
+    "pending": "#8b95a1",
+    "running": "#4c6ef5",
+    "success": "#2f9e6e",
+    "failed": "#e03131",
+    "skipped": "#e8890c",
+    "interrupted": "#e03131",
+    "canceled": "#8b95a1",
 }
 
 _TERMINAL_STATES = frozenset(
@@ -50,6 +62,7 @@ class DownloadQueueView(QWidget):
         )
         root.addWidget(self.table, 1)
         hint = QLabel("下载队列（断点续传，中断后可恢复；进行中的任务可取消）")
+        hint.setObjectName("muted")
         root.addWidget(hint)
 
     # ---- 更新 ----
@@ -61,6 +74,9 @@ class DownloadQueueView(QWidget):
             return
         row = self._ensure_row(row_id)
         status_item = QTableWidgetItem(_STATE_TEXT.get(state, state))
+        color = _STATE_COLOR.get(state)
+        if color:
+            status_item.setForeground(QColor(color))
         self.table.setItem(row, 2, status_item)
         bar = self._bars.get(row_id)
         if bar is not None:

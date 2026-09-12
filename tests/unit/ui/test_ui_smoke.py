@@ -186,9 +186,9 @@ def test_dedup_page_preset_and_signals(qapp, qtbot) -> None:
         lambda srcs, params: captured.update(dedup=(list(srcs), params)))
 
     for b in _buttons(page):
-        if b.text() == "分析重复度":
+        if b.text().startswith("分析重复度"):
             b.click()
-        if b.text() == "开始去重":
+        if b.text().startswith("开始去重"):
             b.click()
     assert captured["analyze"] == [r"C:\wd\已去重\清洗类\地毯\2026-08-25\a_deduped.mp4"]
     _srcs, params = captured["dedup"]   # type: ignore[misc]

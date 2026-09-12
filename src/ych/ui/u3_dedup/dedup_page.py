@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from ych.core.m3_dedup.techniques.registry import TechniqueRegistry
 from ych.ui.u3_dedup.report_view import ReportView
 from ych.ui.u3_dedup.scheme_editor import SchemeEditor
+from ych.ui.u6_common.empty_state import attach_empty_state
 from ych.ui.u6_common.toast import Toast
 
 
@@ -59,6 +60,10 @@ class DedupPage(QWidget):
         left_box = QVBoxLayout()
         left_box.addWidget(QLabel(self.tr("待去重素材")))
         self.asset_list = QListWidget()
+        attach_empty_state(
+            self.asset_list, "暂无素材",
+            "先到「采集工作台」下载素材，\n或把视频文件放入工作目录",
+        )
         left_box.addWidget(self.asset_list, 1)
         btn_all = QPushButton(self.tr("全选"))
         btn_all.setObjectName("secondaryBtn")
@@ -98,12 +103,12 @@ class DedupPage(QWidget):
         right_box.addLayout(row_btns)
 
         row_analyze = QHBoxLayout()
-        btn_analyze = QPushButton(self.tr("分析重复度"))
-        btn_analyze.clicked.connect(self._emit_analyze)
-        btn_start = QPushButton(self.tr("开始去重"))
-        btn_start.clicked.connect(self._emit_dedup)
-        row_analyze.addWidget(btn_analyze)
-        row_analyze.addWidget(btn_start)
+        self.btn_analyze = QPushButton(self.tr("分析重复度"))
+        self.btn_analyze.clicked.connect(self._emit_analyze)
+        self.btn_start = QPushButton(self.tr("开始去重"))
+        self.btn_start.clicked.connect(self._emit_dedup)
+        row_analyze.addWidget(self.btn_analyze)
+        row_analyze.addWidget(self.btn_start)
         right_box.addLayout(row_analyze)
         split.addLayout(right_box, 1)
         root.addLayout(split, 1)
@@ -112,17 +117,37 @@ class DedupPage(QWidget):
         self.report_view = ReportView()
         root.addWidget(self.report_view, 1)
 
+        # 勾选数量反馈到开始按钮
+        self.asset_list.itemChanged.connect(lambda _item: self._refresh_btns())
         # 初始套用默认档（中度），保证编辑器非空
         self._apply_preset()
+        self._refresh_btns()
+
+    def _refresh_btns(self) -> None:
+        n = len(self.checked_paths())       # 实际勾选数
+        self.btn_analyze.setText(
+            self.tr("分析重复度（{}）").format(n) if n else self.tr("分析重复度"),
+        )
+        self.btn_start.setText(
+            self.tr("开始去重（{}）").format(n) if n else self.tr("开始去重"),
+        )
+        self.btn_analyze.setEnabled(n > 0)
+        self.btn_start.setEnabled(n > 0)
 
     # ---- 数据 ----
     def set_assets(self, paths: list[str]) -> None:
+        self.asset_list.blockSignals(True)
         self.asset_list.clear()
         for p in paths:
             item = QListWidgetItem(p)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked)
             self.asset_list.addItem(item)
+        self.asset_list.blockSignals(False)
+        refresh_empty = getattr(self.asset_list, "_refresh_empty_state", None)
+        if refresh_empty is not None:
+            refresh_empty()
+        self._refresh_btns()
 
     def checked_paths(self) -> list[str]:
         out = []

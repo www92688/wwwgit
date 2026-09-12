@@ -1,7 +1,8 @@
 # 结果列表（缩略图卡片：缩略图+时长+画质+大小；勾选批量下载）
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from ych.common.schemas import VideoMeta
+from ych.ui.u6_common.empty_state import attach_empty_state
 
 
 def _fmt_size(size: int | None) -> str:
@@ -35,82 +37,92 @@ class ResultList(QWidget):
 
         top = QHBoxLayout()
         self.select_all = QCheckBox("全选")
-        btn_download = QPushButton("下载选中")
-        btn_download.clicked.connect(self._emit_download)
+        self.btn_download = QPushButton("下载选中")
+        self.btn_download.setEnabled(False)
+        self.btn_download.clicked.connect(self._emit_download)
         top.addWidget(self.select_all)
         top.addStretch(1)
-        top.addWidget(btn_download)
+        top.addWidget(self.btn_download)
         root.addLayout(top)
 
         self.list = QListWidget()
+        attach_empty_state(
+            self.list, "还没有搜索结果",
+            "在顶部输入关键词，点击「搜索」试试",
+        )
         root.addWidget(self.list, 1)
 
         self.select_all.toggled.connect(self._toggle_all)
+        self.list.itemChanged.connect(lambda _item: self._refresh_footer())
 
     # ---- 数据 ----
     def set_results(self, metas: list[VideoMeta], keyword: str,
                     unavailable: list[tuple[str, str]] | None = None) -> None:
+        self.list.blockSignals(True)
         self.list.clear()
+        self.list.blockSignals(False)
         self.keyword = keyword
         for meta in metas:
-            item = QListWidgetItem(self._card_text(meta))
-            item.setData(Qt.ItemDataRole.UserRole, meta)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked)
-            self.list.addItem(item)
-        if unavailable:
-            note = QListWidgetItem(
-                "暂不可用平台：" + "、".join(pid for pid, _r in unavailable)
-            )
-            note.setFlags(note.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
-            self.list.addItem(note)
+            self.list.addItem(self._make_item(meta))
+        self._add_unavailable_note(unavailable)
+        self._refresh_footer()
+        self._refresh_empty()
 
     def clear_results(self) -> None:
         """新一轮搜索开始前清空上一轮结果。"""
+        self.list.blockSignals(True)
         self.list.clear()
+        self.list.blockSignals(False)
         self.keyword = ""
+        self._refresh_footer()
+        self._refresh_empty()
 
     def append_results(self, metas: list[VideoMeta], keyword: str,
                        unavailable: list[tuple[str, str]] | None = None) -> None:
         """批量搜索逐关键词追加（不 clear）；暂不可用提示合并去重。"""
         self.keyword = keyword
         for meta in metas:
-            item = QListWidgetItem(self._card_text(meta))
-            item.setData(Qt.ItemDataRole.UserRole, meta)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked)
-            self.list.addItem(item)
+            self.list.addItem(self._make_item(meta))
+        self._add_unavailable_note(unavailable)
+        self._refresh_footer()
+        self._refresh_empty()
+
+    def _make_item(self, meta: VideoMeta) -> QListWidgetItem:
+        item = QListWidgetItem(self._card_text(meta))
+        item.setData(Qt.ItemDataRole.UserRole, meta)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Checked)
+        item.setSizeHint(QSize(0, 52))
+        item.setToolTip(meta.title or meta.video_key)
+        return item
+
+    def _add_unavailable_note(
+        self, unavailable: list[tuple[str, str]] | None,
+    ) -> None:
         if not unavailable:
             return
-        pids = [pid for pid, _r in unavailable]
-        for i in range(self.list.count() - 1, -1, -1):
-            item = self.list.item(i)
-            if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
-                break
-            text = item.text()
-            if text.startswith("暂不可用平台："):
-                merged = list(dict.fromkeys(
-                    text.removeprefix("暂不可用平台：").split("、") + pids
-                ))
-                item.setText("暂不可用平台：" + "、".join(merged))
-                return
-        note = QListWidgetItem("暂不可用平台：" + "、".join(pids))
-        note.setFlags(note.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+        note = QListWidgetItem(
+            "暂不可用平台：" + "、".join(pid for pid, _r in unavailable)
+        )
+        note.setFlags(
+            note.flags()
+            & ~Qt.ItemFlag.ItemIsUserCheckable
+            & ~Qt.ItemFlag.ItemIsSelectable
+        )
+        note.setForeground(QColor("#9aa3b2"))
         self.list.addItem(note)
 
-    @staticmethod
-    def _card_text(meta: VideoMeta) -> str:
+    def _card_text(self, meta: VideoMeta) -> str:
         title = meta.title or meta.video_key
         quality = f"{meta.width}x{meta.height}" if meta.height else ""
         watermark = "无水印" if meta.watermark_tag == "no" else (
             "有水印" if meta.watermark_tag == "yes" else "")
-        parts = [f"{meta.plugin_id} · {title}",
-                 f"时长 {meta.duration_s:.0f}s",
-                 quality,
-                 _fmt_size(meta.file_size_bytes)]
-        if watermark:
-            parts.append(watermark)
-        return "   |   ".join(p for p in parts if p)
+        detail = " · ".join(
+            p for p in (meta.plugin_id, f"时长 {meta.duration_s:.0f}s",
+                        quality, _fmt_size(meta.file_size_bytes), watermark)
+            if p
+        )
+        return f"{title}\n{detail}"
 
     def checked_metas(self) -> list[VideoMeta]:
         out: list[VideoMeta] = []
@@ -121,6 +133,32 @@ class ResultList(QWidget):
                 assert isinstance(data, VideoMeta)
                 out.append(data)
         return out
+
+    # ---- 内部刷新 ----
+    def _refresh_footer(self) -> None:
+        """下载按钮：选中计数 + 无选中时禁用。"""
+        n = len(self.checked_metas())
+        self.btn_download.setText(f"下载选中（{n}）")
+        self.btn_download.setEnabled(n > 0)
+        if self.select_all.signalsBlocked():
+            return
+        self.select_all.blockSignals(True)
+        self.select_all.setChecked(
+            n > 0 and n == self._checkable_count(),
+        )
+        self.select_all.blockSignals(False)
+
+    def _checkable_count(self) -> int:
+        return sum(
+            1
+            for i in range(self.list.count())
+            if self.list.item(i).flags() & Qt.ItemFlag.ItemIsUserCheckable
+        )
+
+    def _refresh_empty(self) -> None:
+        refresh = getattr(self.list, "_refresh_empty_state", None)
+        if refresh is not None:
+            refresh()
 
     # ---- 槽 ----
     def _toggle_all(self, checked: bool) -> None:

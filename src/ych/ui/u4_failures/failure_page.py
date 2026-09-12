@@ -7,15 +7,20 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, QPersistentModelInd
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
+    QMessageBox,
     QPushButton,
     QTableView,
     QVBoxLayout,
     QWidget,
 )
 
+from ych.ui.u6_common.empty_state import attach_empty_state
 from ych.ui.u6_common.toast import Toast
 
 _EMPTY_INDEX = QModelIndex()
+
+_TYPE_LABEL = {"preprocess": "预处理", "dedup": "去重", "compare": "分析",
+               "download": "下载"}
 
 
 class FailRecordModel(QAbstractTableModel):
@@ -41,13 +46,17 @@ class FailRecordModel(QAbstractTableModel):
 
     def data(self, index: QModelIndex | QPersistentModelIndex,
              role: int = Qt.ItemDataRole.DisplayRole) -> object:
-        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
+        if not index.isValid():
             return None
         r = self._rows[index.row()]
         col = index.column()
-        vals = [r.file_name, r.fail_reason, r.error_code or "",
-                r.fail_time, r.task_type]
-        return str(vals[col])
+        if role == Qt.ItemDataRole.DisplayRole:
+            vals = [r.file_name, r.fail_reason, r.error_code or "",
+                    r.fail_time, _TYPE_LABEL.get(str(r.task_type), str(r.task_type))]
+            return str(vals[col])
+        if role == Qt.ItemDataRole.ToolTipRole and col == 1:
+            return str(r.fail_reason)
+        return None
 
     def headerData(self, section: int, orientation: Qt.Orientation,
                    role: int = Qt.ItemDataRole.DisplayRole) -> object:
@@ -70,6 +79,8 @@ class FailurePage(QWidget):
         self._fails = fails_dao
         self._scheduler = scheduler
         root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
 
         self._model = FailRecordModel()
         self.table = QTableView()
@@ -78,7 +89,20 @@ class FailurePage(QWidget):
             QAbstractItemView.SelectionBehavior.SelectRows
         )
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
+        self.table.verticalHeader().setVisible(False)
+        header = self.table.horizontalHeader()
+        header.setStretchLastSection(True)
+        header.setHighlightSections(False)
+        self.table.setColumnWidth(0, 260)
+        self.table.setColumnWidth(1, 300)
+        self.table.setColumnWidth(2, 90)
+        attach_empty_state(
+            self.table, "没有失败记录",
+            "处理失败的任务会集中在这里，可一键重新处理",
+            is_empty=lambda: self._model.rowCount() == 0,
+        )
         root.addWidget(self.table, 1)
 
         row = QHBoxLayout()
@@ -101,6 +125,9 @@ class FailurePage(QWidget):
     # ---- 槽 ----
     def refresh(self) -> None:
         self._model.set_rows(self._fails.list_recent())
+        refresh_empty = getattr(self.table, "_refresh_empty_state", None)
+        if refresh_empty is not None:
+            refresh_empty()
 
     def _selected_ids(self) -> list[int]:
         ids: list[int] = []
@@ -128,6 +155,13 @@ class FailurePage(QWidget):
         ids = self._selected_ids()
         if not ids:
             Toast.show_message(self, "请先在列表中选中要删除的记录")
+            return
+        answer = QMessageBox.question(
+            self, "清除失败记录",
+            f"确定清除选中的 {len(ids)} 条失败记录吗？\n"
+            "清除后如需再次处理，请回到对应工作台重新提交。",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
             return
         for rid in ids:
             self._fails.delete(rid)
