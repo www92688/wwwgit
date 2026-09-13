@@ -1,6 +1,7 @@
 # 失败列表页（U4）：QTableView 四列 + 重新处理 / 清除
 from __future__ import annotations
 
+import logging
 from typing import Any, ClassVar
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QPersistentModelIndex, Qt
@@ -18,6 +19,8 @@ from ych.ui.u6_common.empty_state import attach_empty_state
 from ych.ui.u6_common.toast import Toast
 
 _EMPTY_INDEX = QModelIndex()
+
+logger = logging.getLogger("ych.ui.u4")
 
 
 class FailRecordModel(QAbstractTableModel):
@@ -138,7 +141,16 @@ class FailurePage(QWidget):
 
     # ---- 槽 ----
     def refresh(self) -> None:
-        self._model.set_rows(self._fails.list_recent())
+        try:
+            rows = self._fails.list_recent()
+        except Exception as exc:
+            logger.exception("失败记录读取失败")
+            Toast.show_message(
+                self, self.tr("读取失败记录出错：{msg}").format(msg=exc),
+                error=True,
+            )
+            return
+        self._model.set_rows(rows)
         refresh_empty = getattr(self.table, "_refresh_empty_state", None)
         if refresh_empty is not None:
             refresh_empty()
@@ -156,13 +168,27 @@ class FailurePage(QWidget):
             Toast.show_message(self, self.tr("请先在列表中选中要重新处理的记录"))
             return
         done = 0
+        failed: list[str] = []
         for rid in ids:
             try:
                 self._scheduler.submit_from_fail_record(rid)
                 done += 1
-            except Exception:
-                continue   # 单条重建失败不阻塞其余（UI 层兜底）
-        Toast.show_message(self, self.tr("已重新提交 {} 条任务").format(done))
+            except Exception as exc:
+                # 单条重建失败不阻塞其余，但必须让用户知道哪条没提交
+                logger.warning("失败记录 %s 重新提交出错：%s", rid, exc)
+                failed.append(f"#{rid}: {exc}")
+        if failed:
+            Toast.show_message(
+                self,
+                self.tr("已重新提交 {n} 条，{m} 条失败：{detail}").format(
+                    n=done, m=len(failed), detail="；".join(failed[:3]),
+                ),
+                error=True, timeout_ms=8000,
+            )
+        else:
+            Toast.show_message(
+                self, self.tr("已重新提交 {} 条任务").format(done),
+            )
         self.refresh()
 
     def _delete_selected(self) -> None:
@@ -178,9 +204,25 @@ class FailurePage(QWidget):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        deleted = 0
         for rid in ids:
-            self._fails.delete(rid)
-        Toast.show_message(self, self.tr("已删除 {} 条失败记录").format(len(ids)))
+            try:
+                self._fails.delete(rid)
+                deleted += 1
+            except Exception:
+                logger.exception("失败记录 %s 删除出错", rid)
+        if deleted < len(ids):
+            Toast.show_message(
+                self,
+                self.tr("已删除 {n} 条，{m} 条删除失败，请重试").format(
+                    n=deleted, m=len(ids) - deleted,
+                ),
+                error=True,
+            )
+        else:
+            Toast.show_message(
+                self, self.tr("已删除 {} 条失败记录").format(deleted),
+            )
         self.refresh()
 
     def retranslate(self) -> None:

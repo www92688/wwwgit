@@ -251,10 +251,20 @@ class CapturePage(QWidget):
             self, self.tr("正在搜索：{kw} …").format(kw="、".join(keywords)),
         )
         self._set_searching(True)
-        self.result_list.clear_results()
-        self._coordinator.search_multi(
-            keywords, self.filter_panel.to_filters(), 30, platform_ids=selected,
-        )
+        # 同步段（清结果/发起搜索）异常必须恢复按钮，否则搜索永久卡灰
+        try:
+            self.result_list.clear_results()
+            self._coordinator.search_multi(
+                keywords, self.filter_panel.to_filters(), 30,
+                platform_ids=selected,
+            )
+        except Exception as exc:
+            self._set_searching(False)
+            Toast.show_message(
+                self, self.tr("搜索发起失败：{msg}").format(msg=exc),
+                error=True,
+            )
+            return
         # 历史词由 SearchCoordinator 按词+实际平台记录（此处不再重复记录）
 
     def _set_searching(self, searching: bool) -> None:
@@ -379,6 +389,10 @@ class CapturePage(QWidget):
         """
         for cb in self.global_checks.values():
             cb.setEnabled(checked)
+            if not checked:
+                # 关总开关同时清勾选：否则子项禁用但仍勾选，搜索时
+                # 被当作已选平台产生"暂不可用"噪音
+                cb.setChecked(False)
         if not checked:
             return
         if self._config is not None and not bool(
@@ -386,6 +400,13 @@ class CapturePage(QWidget):
         ):
             self.foreign_master.setChecked(False)
             self.foreign_switch_requested.emit()
+
+    def on_foreign_probe_failed(self, msg: str) -> None:
+        """外网检测线程异常：回弹总开关并提示（与不可达同路径）。"""
+        self.foreign_master.setChecked(False)
+        Toast.show_message(
+            self, self.tr("外网检测失败：{msg}").format(msg=msg), error=True,
+        )
 
     def confirm_foreign_enable(self, reachable: bool) -> None:
         """外部检测回调：可达→置位总开关并持久化；不可达→回弹并提示。"""

@@ -1,6 +1,7 @@
 # 应用入口：LogService.setup → AppContext DI → 主窗口启动（冷启动 ≤5s：懒加载）
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 from collections.abc import Callable
@@ -86,9 +87,16 @@ def main() -> int:
 
         worker = LlmWorker(_probe)
         _net_workers.append(worker)
+
+        def _cleanup() -> None:
+            with contextlib.suppress(ValueError):
+                _net_workers.remove(worker)
+
         worker.done.connect(
             lambda status: capture.confirm_foreign_enable(status == "ok")
         )
+        worker.failed.connect(capture.on_foreign_probe_failed)
+        worker.finished.connect(_cleanup)
         worker.finished.connect(worker.deleteLater)
         worker.start()
 
@@ -297,19 +305,33 @@ def wire_asset_refresh(
     同时接线工作目录增量扫描（后台线程）：手动放入的文件也能进素材索引，
     扫描完成后刷新两工作台列表。返回 refresh 供崩溃恢复后复用。
     """
+    from PySide6.QtCore import QObject
 
-    def refresh() -> None:
-        try:
-            rows = ctx.daos().assets.list_by_kind("raw")
-        except Exception as exc:
-            logging.getLogger("ych.app").warning("素材列表刷新失败：%s", exc)
-            return
-        preprocess.set_assets(rows)
-        dedup.set_assets([r.path for r in rows])
+    class _AssetRefreshBridge(QObject):
+        """下载/扫描信号接收者必须是 QObject 方法：普通闭包没有线程归属，
+        会在发射线程（下载 worker/扫描线程）直接执行，跨线程操作
+        QTreeWidget/QListWidget 会偶发段错误。"""
 
-    def on_updated(_row_id: int, state: str, _progress: float, _msg: str) -> None:
-        if state == "success":
-            refresh()
+        def refresh(self) -> None:
+            try:
+                rows = ctx.daos().assets.list_by_kind("raw")
+            except Exception as exc:
+                logging.getLogger("ych.app").warning("素材列表刷新失败：%s", exc)
+                return
+            preprocess.set_assets(rows)
+            dedup.set_assets([r.path for r in rows])
+
+        def on_download_updated(
+            self, _row_id: int, state: str, _progress: float, _msg: str,
+        ) -> None:
+            if state == "success":
+                self.refresh()
+
+        def on_scan_finished(self, _added: int) -> None:
+            self.refresh()
+
+    bridge = _AssetRefreshBridge()
+    refresh: Callable[[], None] = bridge.refresh   # 绑定方法保活 bridge
 
     def run_scan() -> None:
         """后台线程增量扫描工作目录；完成信号回主线程后刷新列表。"""
@@ -326,15 +348,11 @@ def wire_asset_refresh(
         threading.Thread(target=_work, daemon=True,
                          name="ych-asset-scan").start()
 
-    def on_scan_finished(_added: int) -> None:
-        # ScanIndexer 为主线程 QObject，信号经队列回主线程
-        refresh()
-
     refresh()
-    dm.item_updated.connect(on_updated)
+    dm.item_updated.connect(bridge.on_download_updated)
     ctx.workdirs().workdir_changed.connect(lambda _path: refresh())
     ctx.workdirs().workdir_changed.connect(lambda _path: run_scan())
-    ctx.scan_indexer().scan_finished.connect(on_scan_finished)
+    ctx.scan_indexer().scan_finished.connect(bridge.on_scan_finished)
     run_scan()          # 启动即扫一遍（拾遗：手动放入工作目录的素材）
     return refresh
 

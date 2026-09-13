@@ -1,6 +1,7 @@
 # 预处理工作台（U2）：素材树 + 处理项面板 + 框选画布 + 开始按钮
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -45,6 +46,8 @@ class PreprocessPage(QWidget):
         self._scheduler = scheduler
         self._frame_loader = frame_loader
         self._preview_worker: Any | None = None
+        self._last_payload: Any = None
+        self._last_submit_ts = 0.0
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(8)
@@ -205,7 +208,21 @@ class PreprocessPage(QWidget):
             )
             return
         if self._scheduler is None:
+            Toast.show_message(
+                self, self.tr("处理服务未就绪，无法开始处理"), error=True,
+            )
             return
+        # 防连点重复提交：同一批次 3 秒内重复点击直接拦截（双击/手抖
+        # 会重复提交整批任务，造成重复转码与产物覆盖）
+        now = time.monotonic()
+        if (self._last_payload == payload
+                and now - self._last_submit_ts < 3.0):
+            Toast.show_message(
+                self, self.tr("该批任务已提交，请勿重复点击"),
+            )
+            return
+        self._last_payload = payload
+        self._last_submit_ts = now
         data: dict[str, object] = getattr(payload, "data", {})
         raw_items = data.get("items") or []
         items: list[object] = list(raw_items) if isinstance(raw_items, list) else []
@@ -237,6 +254,9 @@ class PreprocessPage(QWidget):
         from ych.ui.u6_common.llm_worker import LlmWorker
 
         if self._frame_loader is None:
+            Toast.show_message(
+                self, self.tr("预览能力未装配，无法加载素材帧"), error=True,
+            )
             return
         if self._preview_worker is not None:
             Toast.show_message(self, self.tr("预览帧正在加载，请稍候…"))

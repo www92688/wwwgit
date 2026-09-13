@@ -1,6 +1,7 @@
 # 去重工作台（U3）：素材勾选 / 三档方案卡片 / 自定义编辑 / 报告视图
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -61,6 +62,8 @@ class DedupPage(QWidget):
         self._registry = registry or make_registry()
         self._schemes = scheme_manager
         self._config = config
+        self._last_submit_key: tuple[object, ...] | None = None
+        self._last_submit_ts = 0.0
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -252,7 +255,16 @@ class DedupPage(QWidget):
         elif chosen is act_copy:
             copy_to_clipboard(path)
         elif chosen is act_play:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            # 菜单构建时文件存在，但打开前可能被移动/删除，或系统无
+            # 关联播放器——失败必须提示而非静默
+            opened = QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            if not opened:
+                Toast.show_message(
+                    self,
+                    self.tr("打开失败：文件不存在或系统没有关联的播放器"),
+                    error=True,
+                )
+
 
     def render_report(self, report, before_pct=None, after_pct=None):   # type: ignore[no-untyped-def]
         self.report_view.show_report(report, before_pct, after_pct)
@@ -293,9 +305,15 @@ class DedupPage(QWidget):
 
     # ---- 槽 ----
     def _select_all(self) -> None:
-        state = Qt.CheckState.Checked
-        for i in range(self.asset_list.count()):
-            self.asset_list.item(i).setCheckState(state)
+        # blockSignals：逐条 setCheckState 会各触发一次 itemChanged→
+        # _refresh_btns，量大时明显卡顿；收尾统一刷一次
+        self.asset_list.blockSignals(True)
+        try:
+            for i in range(self.asset_list.count()):
+                self.asset_list.item(i).setCheckState(Qt.CheckState.Checked)
+        finally:
+            self.asset_list.blockSignals(False)
+        self._refresh_btns()
 
     def _current_preset(self) -> str:
         button = self.radio_group.checkedButton()
@@ -315,19 +333,38 @@ class DedupPage(QWidget):
 
     def _emit_analyze(self) -> None:
         srcs = self.checked_paths()
-        if srcs:
-            self.analyze_requested.emit(srcs)
-        else:
+        if not srcs:
             Toast.show_message(
                 self, self.tr("请先在左侧勾选素材，再分析重复度"),
             )
+            return
+        if self._is_duplicate_submit((tuple(srcs), "compare")):
+            return
+        self._last_submit_key = (tuple(srcs), "compare")
+        self._last_submit_ts = time.monotonic()
+        self.analyze_requested.emit(srcs)
 
     def _emit_dedup(self) -> None:
         srcs = self.checked_paths()
-        if srcs:
-            self.dedup_requested.emit(srcs, self.current_params())
-        else:
+        if not srcs:
             Toast.show_message(self, self.tr("请先在左侧勾选素材，再开始去重"))
+            return
+        params = self.current_params()
+        # 防连点重复提交：同批素材同参数 3 秒内重复点击直接拦截
+        key = (tuple(srcs), str(params))
+        if self._is_duplicate_submit(key):
+            return
+        self._last_submit_key = key
+        self._last_submit_ts = time.monotonic()
+        self.dedup_requested.emit(srcs, params)
+
+    def _is_duplicate_submit(self, key: tuple[object, ...]) -> bool:
+        """3 秒内同 key 的提交视为连点（防重复入队整批任务）。"""
+        if (self._last_submit_key == key
+                and time.monotonic() - self._last_submit_ts < 3.0):
+            Toast.show_message(self, self.tr("该批任务已提交，请勿重复点击"))
+            return True
+        return False
 
     def retranslate(self) -> None:
         """语言切换：静态文案 + 卡片标题/说明 + 动态按钮重翻译。"""

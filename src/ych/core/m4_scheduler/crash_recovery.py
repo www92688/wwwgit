@@ -56,44 +56,30 @@ class CrashRecovery:
         # ---- 下载任务 ----
         for drow in self._daos.downloads.list_by_status("running"):
             assert isinstance(drow, DownloadTaskRow)
-            self._daos.downloads.update_state(drow.id, "interrupted")
-            started = bool(drow.resume_state) or (drow.progress or 0) > 0
-            if not started:
-                # 并发闸门排队中崩溃：从未开始，直接重排队（无需续传状态）
-                if resume_cb is not None:
-                    resume_cb(drow.id, drow.video_meta, drow.keyword)
-                    summary.resumed_downloads += 1
-                    logger.info("download %s (never started) requeued", drow.id)
-            elif drow.resume_state:
-                if resume_cb is not None:
-                    resume_cb(drow.id, drow.video_meta, drow.keyword)
-                    summary.resumed_downloads += 1
-                    logger.info("download %s requeued for resume", drow.id)
-            else:
-                self._daos.fails.add(
-                    file_name=drow.keyword,
-                    reason="软件中断，下载未完成",
-                    code="DL001",
-                    task_type="download",
-                    payload={"video_meta": drow.video_meta,
-                             "keyword": drow.keyword},
-                )
-                summary.moved_to_fail += 1
+            # 单行脏数据（如 meta JSON 损坏）只跳过该行，
+            # 不中断整个恢复（否则剩余行永久滞留 running）
+            try:
+                self._recover_download_row(drow, resume_cb, summary)
+            except Exception:
+                logger.exception("download %s 恢复失败（跳过）", drow.id)
 
         # ---- 处理任务 ----
         for prow in self._daos.processes.list_interrupted():
             assert isinstance(prow, ProcessTaskRow)
-            self._daos.processes.finish(prow.id, "interrupted", None, None)
-            src_name = Path(prow.src_path).name if prow.src_path else "?"
-            self._daos.fails.add(
-                file_name=src_name,
-                reason="软件中断，请重新处理",
-                code="TASK004",
-                task_type=prow.task_type,
-                payload=self._rebuild_payload(prow),
-            )
-            summary.moved_to_fail += 1
-            logger.info("process %s moved to fail list", prow.id)
+            try:
+                self._daos.processes.finish(prow.id, "interrupted", None, None)
+                src_name = Path(prow.src_path).name if prow.src_path else "?"
+                self._daos.fails.add(
+                    file_name=src_name,
+                    reason="软件中断，请重新处理",
+                    code="TASK004",
+                    task_type=prow.task_type,
+                    payload=self._rebuild_payload(prow),
+                )
+                summary.moved_to_fail += 1
+                logger.info("process %s moved to fail list", prow.id)
+            except Exception:
+                logger.exception("process %s 恢复失败（跳过）", prow.id)
 
         # ---- .downloading/ 孤儿清理（失败不影响恢复结果）----
         try:
@@ -102,6 +88,34 @@ class CrashRecovery:
             logger.warning(".downloading 孤儿清理失败（忽略）：%s", exc)
 
         return summary
+
+    def _recover_download_row(
+        self, drow: DownloadTaskRow,
+        resume_cb: _ResumeCallback | None, summary: CrashRecoverySummary,
+    ) -> None:
+        self._daos.downloads.update_state(drow.id, "interrupted")
+        started = bool(drow.resume_state) or (drow.progress or 0) > 0
+        if not started:
+            # 并发闸门排队中崩溃：从未开始，直接重排队（无需续传状态）
+            if resume_cb is not None:
+                resume_cb(drow.id, drow.video_meta, drow.keyword)
+                summary.resumed_downloads += 1
+                logger.info("download %s (never started) requeued", drow.id)
+        elif drow.resume_state:
+            if resume_cb is not None:
+                resume_cb(drow.id, drow.video_meta, drow.keyword)
+                summary.resumed_downloads += 1
+                logger.info("download %s requeued for resume", drow.id)
+        else:
+            self._daos.fails.add(
+                file_name=drow.keyword,
+                reason="软件中断，下载未完成",
+                code="DL001",
+                task_type="download",
+                payload={"video_meta": drow.video_meta,
+                         "keyword": drow.keyword},
+            )
+            summary.moved_to_fail += 1
 
     def _cleanup_orphan_parts(self) -> int:
         """删除 .downloading/ 下无任务引用且超过门槛时长的 .part 文件。

@@ -49,8 +49,14 @@ class ScanIndexer(QObject):
         seen: set[str] = set()
         added = 0
         rows: list[AssetRow] = []
+        walk_errors: list[str] = []
 
-        for root, _dirs, files in os.walk(wd):
+        def _on_walk_error(err: OSError) -> None:
+            # 无权限目录：记录并跳过（该子树不参与本轮 stale 判定）
+            walk_errors.append(str(err))
+            logger.warning("扫描跳过不可访问目录：%s", err)
+
+        for root, _dirs, files in os.walk(wd, onerror=_on_walk_error):
             for fname in files:
                 if Path(fname).suffix.lower() not in SUPPORTED_EXTENSIONS:
                     continue
@@ -71,7 +77,14 @@ class ScanIndexer(QObject):
                     )
                 except Exception as exc:
                     logger.warning("probe 失败 %s：%s", full, exc)
-                stat = os.stat(full)
+                try:
+                    stat = os.stat(full)
+                except OSError as exc:
+                    # walk 与 stat 之间文件被删/权限收紧：跳过该文件，
+                    # 不让单文件竞态中止整轮扫描（否则 scan_finished 不发，
+                    # UI 列表停留在旧态）
+                    logger.warning("stat 失败 %s：%s", full, exc)
+                    continue
                 rows.append(AssetRow(
                     id=0, path=full, kind=kind,
                     size_bytes=stat.st_size, duration_s=duration_s,
@@ -88,7 +101,11 @@ class ScanIndexer(QObject):
         if rows:
             self._assets.upsert_many(rows)
         stale = known - seen
-        if stale:
+        if stale and walk_errors:
+            # 有不可访问子树时不能把其中的文件当失效删除（权限恢复前列表会"丢文件"）
+            logger.warning("存在 %d 个不可访问目录，本轮跳过失效清理（%d 条）",
+                           len(walk_errors), len(stale))
+        elif stale:
             self._assets.delete_paths(stale)
         if added:
             logger.info("scan added %d assets", added)

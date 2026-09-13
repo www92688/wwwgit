@@ -262,9 +262,12 @@ class HttpClient(QObject):
             # 且按详设置 etag=""（不支持 Range 的标记）
             resp.close()
             headers.pop("Range", None)
-            resp = self._session.get(
-                url, headers=headers, stream=True, timeout=(5, 30)
-            )
+            try:
+                resp = self._session.get(
+                    url, headers=headers, stream=True, timeout=(5, 30)
+                )
+            except requests.exceptions.RequestException as exc:
+                raise AppError(ERR_NET_TIMEOUT, "下载连接失败", cause=exc) from exc
             start_from = 0
             etag = ""
         else:
@@ -287,26 +290,36 @@ class HttpClient(QObject):
         last_cb_bytes = 0
         try:
             with open(temp, mode) as f:
-                for chunk in resp.iter_content(chunk_size=_CHUNK_SIZE):
-                    if token is not None:
-                        token.check()
-                    if not chunk:
-                        continue
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    now = time.monotonic()
-                    if now - last_cb_ts >= _PROGRESS_INTERVAL_S or (
-                        downloaded - last_cb_bytes >= _PROGRESS_INTERVAL_BYTES
-                    ):
-                        last_cb_ts = now
-                        last_cb_bytes = downloaded
-                        if on_progress is not None:
-                            on_progress(
-                                downloaded / total_bytes if total_bytes else 0.0
-                            )
-                        _emit_state()
-                f.flush()
-                os.fsync(f.fileno())
+                try:
+                    for chunk in resp.iter_content(chunk_size=_CHUNK_SIZE):
+                        if token is not None:
+                            token.check()
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        now = time.monotonic()
+                        if now - last_cb_ts >= _PROGRESS_INTERVAL_S or (
+                            downloaded - last_cb_bytes >= _PROGRESS_INTERVAL_BYTES
+                        ):
+                            last_cb_ts = now
+                            last_cb_bytes = downloaded
+                            if on_progress is not None:
+                                on_progress(
+                                    downloaded / total_bytes if total_bytes
+                                    else 0.0
+                                )
+                            _emit_state()
+                    f.flush()
+                    os.fsync(f.fileno())
+                except requests.exceptions.RequestException as exc:
+                    # 传输中途断流（最常见的瞬态失败）必须映射 NET 域错误码，
+                    # 否则任务以 UNKNOWN 终态失败且重试机制失效；.part 已保留可续传
+                    raise AppError(
+                        ERR_NET_TIMEOUT,
+                        "下载传输中断，请重试（已保留断点）",
+                        cause=exc,
+                    ) from exc
         finally:
             resp.close()
 

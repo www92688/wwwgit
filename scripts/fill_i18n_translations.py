@@ -20,6 +20,14 @@ EN: dict[tuple[str, str], str] = {
         "Check your VPN/proxy settings",
     ("CapturePage", "下载服务未就绪，无法入队"): "Download service not ready, cannot enqueue",
     ("CapturePage", "文件定位功能未装配"): "File locator is not available",
+    ("CapturePage", "外网检测失败：{msg}"): "Foreign network check failed: {msg}",
+    ("CapturePage", "搜索发起失败：{msg}"): "Failed to start the search: {msg}",
+    ("DedupPage", "该批任务已提交，请勿重复点击"):
+        "This batch has been submitted; no need to click again",
+    ("DedupPage", "打开失败：文件不存在或系统没有关联的播放器"):
+        "Failed to open: the file does not exist or no player is "
+        "associated with it",
+    ("FailRecordModel", "文件名"): "File name",
     ("DedupPage", "轻度"): "Light",
     ("DedupPage", "中度"): "Medium",
     ("DedupPage", "重度"): "Heavy",
@@ -28,9 +36,14 @@ EN: dict[tuple[str, str], str] = {
         "Select assets on the left before analyzing duplicates",
     ("DedupPage", "请先在左侧勾选素材，再开始去重"):
         "Select assets on the left before starting dedup",
+    ("FailurePage", "读取失败记录出错：{msg}"):
+        "Failed to read the failure records: {msg}",
+    ("FailurePage", "已重新提交 {n} 条，{m} 条失败：{detail}"):
+        "Resubmitted {n}; {m} failed: {detail}",
+    ("FailurePage", "已删除 {n} 条，{m} 条删除失败，请重试"):
+        "Deleted {n}; {m} could not be deleted, please retry",
     ("DownloadQueueView", "取消"): "Cancel",
     ("DownloadQueueView", "任务已结束"): "Task finished",
-    ("FailRecordModel", "文件名"): "File name",
     ("FailRecordModel", "失败原因"): "Failure reason",
     ("FailRecordModel", "错误码"): "Error code",
     ("FailRecordModel", "时间"): "Time",
@@ -104,6 +117,12 @@ EN: dict[tuple[str, str], str] = {
     ("PreprocessPage", "预览帧正在加载，请稍候…"):
         "The preview frame is loading, please wait…",
     ("PreprocessPage", "抽帧失败：{msg}"): "Frame extraction failed: {msg}",
+    ("PreprocessPage", "该批任务已提交，请勿重复点击"):
+        "This batch has been submitted; no need to click again",
+    ("PreprocessPage", "处理服务未就绪，无法开始处理"):
+        "Processing service not ready, cannot start",
+    ("PreprocessPage", "预览能力未装配，无法加载素材帧"):
+        "Preview is not wired up; cannot load the frame",
     ("ReportView", "综合重复度"): "Overall similarity",
     ("ReportView", "构图"): "Composition",
     ("ReportView", "运镜"): "Camera motion",
@@ -141,6 +160,10 @@ EN: dict[tuple[str, str], str] = {
     ("SettingsPage", "未命名"): "Untitled",
     ("SettingsPage", "未选模型"): "No model selected",
     ("SettingsPage", "选择素材工作目录"): "Select Asset Working Directory",
+    ("SettingsPage", "API Key 写入系统凭据库失败：{msg}"):
+        "Failed to write the API Key to the system credential store: {msg}",
+    ("SettingsPage", "Key 写入系统凭据库失败：{msg}"):
+        "Failed to write the key to the system credential store: {msg}",
     ("Toast", "查看日志"): "View logs",
     ("_Bridge", "预处理"): "Preprocess",
     ("_Bridge", "去重"): "Dedup",

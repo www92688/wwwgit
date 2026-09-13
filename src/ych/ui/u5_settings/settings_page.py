@@ -2,6 +2,7 @@
 # 服务区为 CC Switch 式交互：列表页展示"用哪个"，添加/编辑跳转独立配置页。
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -38,6 +39,8 @@ from ych.ui.u6_common.flow_layout import FlowLayout
 from ych.ui.u6_common.llm_worker import LlmWorker
 
 _GREEN, _ORANGE, _RED, _GRAY = "#16a34a", "#d97706", "#dc2626", "#6b7280"
+
+logger = logging.getLogger("ych.ui.u5")
 
 if TYPE_CHECKING:
     from PySide6.QtCore import Signal
@@ -705,7 +708,16 @@ class SettingsPage(QWidget):
         services[service_id]["model"] = self.ai_model_combo.currentText().strip()
         key = self.ai_key_edit.text().strip()
         if key:
-            self._config.secret_set(f"ai:{service_id}", key)
+            try:
+                self._config.secret_set(f"ai:{service_id}", key)
+            except Exception as exc:
+                # keyring 后端缺失/被锁：提示而非未捕获异常卡在编辑页
+                logger.exception("API Key 写入系统凭据库失败")
+                QMessageBox.warning(
+                    self, self.tr("无法保存"),
+                    self.tr("API Key 写入系统凭据库失败：{msg}").format(msg=exc),
+                )
+                return
             services[service_id]["has_key"] = True
         elif not services[service_id].get("has_key"):
             services[service_id]["has_key"] = False
@@ -802,12 +814,20 @@ class SettingsPage(QWidget):
     def _save_stock_key(self) -> None:
         pid = self._editing_stock_pid
         value = self.stock_key_edit.text().strip()
-        if value:
-            self._config.secret_set(pid, value)   # 写 keyring 并置位标记
-        else:
-            if hasattr(self._config, "secret_delete"):
-                self._config.secret_delete(pid)
-            self._config.set(f"{pid}_api_key", False)
+        try:
+            if value:
+                self._config.secret_set(pid, value)   # 写 keyring 并置位标记
+            else:
+                if hasattr(self._config, "secret_delete"):
+                    self._config.secret_delete(pid)
+                self._config.set(f"{pid}_api_key", False)
+        except Exception as exc:
+            logger.exception("素材站 Key 写入系统凭据库失败")
+            QMessageBox.warning(
+                self, self.tr("无法保存"),
+                self.tr("Key 写入系统凭据库失败：{msg}").format(msg=exc),
+            )
+            return
         self._stack.setCurrentIndex(_PAGE_LIST)
         self._rebuild_service_list(select_service=("stock", pid))
 

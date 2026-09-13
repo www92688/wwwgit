@@ -348,6 +348,10 @@ class TaskScheduler(QObject):
             with self._batch_lock:      # 多 worker 并发收尾，计数需互斥
                 self._batch_done[key] += 1
                 done, total = self._batch_done[key], self._batch_total[key]
+                if done >= total:
+                    # 批次收齐即清理：defaultdict 条目只增不清会长会话泄漏
+                    self._batch_done.pop(key, None)
+                    self._batch_total.pop(key, None)
             self.queue_stats.emit(done, total)
 
 
