@@ -34,6 +34,13 @@ class _DimBar(QWidget):
         self.bar.setRange(0, 100)
         row.addWidget(label)
         row.addWidget(self.bar, 1)
+        self._label = label
+        self._title_src = title
+
+    def set_src_title(self, title: str) -> None:
+        """更新标题源串并显示（语言切换时传 tr 后的新文案）。"""
+        self._title_src = title
+        self._label.setText(title)
 
     def set_pct(self, value: float) -> None:
         pct = max(0.0, min(value, 1.0)) * 100.0
@@ -51,6 +58,9 @@ class ReportView(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._last: tuple[CompareReport | None, float | None, float | None] = (
+            None, None, None,
+        )
         root = QVBoxLayout(self)
         top = QHBoxLayout()
 
@@ -59,28 +69,25 @@ class ReportView(QWidget):
         self.overall_label.setStyleSheet(
             "font-size:34px; font-weight:600; color:#a5aec0;",
         )
-        cap = QLabel("综合重复度")
-        cap.setObjectName("muted")
+        self._cap = QLabel(self.tr("综合重复度"))
+        self._cap.setObjectName("muted")
         ring_box.addWidget(self.overall_label)
-        ring_box.addWidget(cap)
+        ring_box.addWidget(self._cap)
         top.addLayout(ring_box)
 
         dims_box = QVBoxLayout()
-        self.dim_comp = _DimBar("构图")
-        self.dim_motion = _DimBar("运镜")
-        self.dim_rhythm = _DimBar("节奏")
+        self.dim_comp = _DimBar(self.tr("构图"))
+        self.dim_motion = _DimBar(self.tr("运镜"))
+        self.dim_rhythm = _DimBar(self.tr("节奏"))
         for bar in (self.dim_comp, self.dim_motion, self.dim_rhythm):
             dims_box.addWidget(bar)
         top.addLayout(dims_box, 1)
         root.addLayout(top)
 
-        self.compare_label = QLabel("处理前 → 处理后：—")
+        self.compare_label = QLabel(self.tr("处理前 → 处理后：—"))
         root.addWidget(self.compare_label)
 
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(
-            ["来源", "平台", "标题", "相似度%", "状态"]
-        )
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
@@ -90,7 +97,24 @@ class ReportView(QWidget):
         self.table.setColumnWidth(1, 90)
         self.table.setColumnWidth(2, 320)
         self.table.setColumnWidth(3, 80)
+        self._set_headers()
         root.addWidget(self.table, 1)
+
+    def _set_headers(self) -> None:
+        self.table.setHorizontalHeaderLabels([
+            self.tr("来源"), self.tr("平台"), self.tr("标题"),
+            self.tr("相似度%"), self.tr("状态"),
+        ])
+
+    def retranslate(self) -> None:
+        """语言切换：静态标签/表头重翻译；有历史报告则整体重渲染。"""
+        self._cap.setText(self.tr("综合重复度"))
+        self.dim_comp.set_src_title(self.tr("构图"))
+        self.dim_motion.set_src_title(self.tr("运镜"))
+        self.dim_rhythm.set_src_title(self.tr("节奏"))
+        self._set_headers()
+        report, before_pct, after_pct = self._last
+        self.show_report(report, before_pct, after_pct)
 
     # ---- 渲染 ----
     def show_report(
@@ -99,13 +123,14 @@ class ReportView(QWidget):
         before_pct: float | None = None,
         after_pct: float | None = None,
     ) -> None:
+        self._last = (report, before_pct, after_pct)
         if report is None:
             self.overall_label.setText("—%")
             self.overall_label.setStyleSheet(
                 "font-size:34px; font-weight:600; color:#a5aec0;",
             )
             self.table.setRowCount(0)
-            self.compare_label.setText("处理前 → 处理后：—")
+            self.compare_label.setText(self.tr("处理前 → 处理后：—"))
             return
 
         best_dims = report.dims
@@ -119,15 +144,15 @@ class ReportView(QWidget):
         self.dim_rhythm.set_pct(best_dims.rhythm)
 
         if before_pct is not None or after_pct is not None:
-            self.compare_label.setText(
-                f"处理前 → 处理后：{_pct(before_pct)} → {_pct(after_pct)}"
-            )
+            self.compare_label.setText(self.tr(
+                "处理前 → 处理后：{a} → {b}",
+            ).format(a=_pct(before_pct), b=_pct(after_pct)))
         else:
-            self.compare_label.setText("处理前 → 处理后：—")
+            self.compare_label.setText(self.tr("处理前 → 处理后：—"))
 
         self.table.setRowCount(len(report.targets))
         for i, t in enumerate(report.targets):
-            source = "手动" if t.source == "manual" else "自动"
+            source = self.tr("手动") if t.source == "manual" else self.tr("自动")
             values = [
                 source,
                 t.platform_id or "-",

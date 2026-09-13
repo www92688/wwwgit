@@ -12,6 +12,10 @@ class StepHint(QLabel):
         super().__init__(parent)
         self.setObjectName("stepHint")
         self.setTextFormat(Qt.TextFormat.RichText)
+        self.set_steps(steps)
+
+    def set_steps(self, steps: list[str]) -> None:
+        """渲染/重渲染步骤条（语言切换重翻译时传入新文案再调一次）。"""
         parts: list[str] = []
         for i, text in enumerate(steps):
             num = _CIRCLED[i] if i < len(_CIRCLED) else f"{i + 1}."

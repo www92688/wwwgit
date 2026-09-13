@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QPointF, QSize, Qt, Signal
+from PySide6.QtCore import QCoreApplication, QPointF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
@@ -29,6 +29,7 @@ from ych.ui.u6_common.context_actions import copy_to_clipboard
 from ych.ui.u6_common.empty_state import attach_empty_state
 from ych.ui.u6_common.platform_labels import platform_label
 from ych.ui.u6_common.thumb_fetcher import ThumbFetcher, thumb_key
+from ych.ui.u6_common.toast import Toast
 
 _THUMB_ROLE = int(Qt.ItemDataRole.UserRole + 1)   # item → 缩略图缓存键
 _THUMB_SIZE = QSize(76, 46)
@@ -56,7 +57,7 @@ def _placeholder_icon() -> QIcon:
 
 def _fmt_size(size: int | None) -> str:
     if not size:
-        return "大小未知"
+        return QCoreApplication.translate("ResultList", "大小未知")
     if size >= 1024 * 1024:
         return f"{size / 1048576:.1f}MB"
     return f"{size / 1024:.0f}KB"
@@ -73,8 +74,8 @@ class ResultList(QWidget):
         self.keyword = ""
 
         top = QHBoxLayout()
-        self.select_all = QCheckBox("全选")
-        self.btn_download = QPushButton("下载选中")
+        self.select_all = QCheckBox(self.tr("全选"))
+        self.btn_download = QPushButton(self.tr("下载选中"))
         self.btn_download.setEnabled(False)
         self.btn_download.clicked.connect(self._emit_download)
         top.addWidget(self.select_all)
@@ -86,9 +87,9 @@ class ResultList(QWidget):
         self.list.setIconSize(_THUMB_SIZE)
         self._thumbs = ThumbFetcher(self)
         self._thumbs.fetched.connect(self._on_thumb_fetched)
-        attach_empty_state(
-            self.list, "还没有搜索结果",
-            "在顶部输入关键词，点击「搜索」试试",
+        self._empty = attach_empty_state(
+            self.list, self.tr("还没有搜索结果"),
+            self.tr("在顶部输入关键词，点击「搜索」试试"),
         )
         root.addWidget(self.list, 1)
 
@@ -167,7 +168,9 @@ class ResultList(QWidget):
         if not unavailable:
             return
         note = QListWidgetItem(
-            "暂不可用平台：" + "、".join(pid for pid, _r in unavailable)
+            self.tr("暂不可用平台：{}").format(
+                "、".join(pid for pid, _r in unavailable),
+            ),
         )
         note.setFlags(
             note.flags()
@@ -180,11 +183,13 @@ class ResultList(QWidget):
     def _card_text(self, meta: VideoMeta) -> str:
         title = meta.title or meta.video_key
         quality = f"{meta.width}x{meta.height}" if meta.height else ""
-        watermark = "无水印" if meta.watermark_tag == "no" else (
-            "有水印" if meta.watermark_tag == "yes" else "")
+        watermark = (
+            self.tr("无水印") if meta.watermark_tag == "no"
+            else self.tr("有水印") if meta.watermark_tag == "yes" else ""
+        )
         detail = " · ".join(
             p for p in (platform_label(meta.plugin_id),
-                        f"时长 {meta.duration_s:.0f}s",
+                        self.tr("时长 {d}s").format(d=f"{meta.duration_s:.0f}"),
                         quality, _fmt_size(meta.file_size_bytes), watermark)
             if p
         )
@@ -204,7 +209,9 @@ class ResultList(QWidget):
     def _refresh_footer(self) -> None:
         """下载按钮：选中计数 + 无选中时禁用。"""
         n = len(self.checked_metas())
-        self.btn_download.setText(f"下载选中（{n}）")
+        self.btn_download.setText(
+            self.tr("下载选中（{}）").format(n) if n else self.tr("下载选中"),
+        )
         self.btn_download.setEnabled(n > 0)
         if self.select_all.signalsBlocked():
             return
@@ -227,7 +234,7 @@ class ResultList(QWidget):
             refresh()
 
     def _show_item_menu(self, pos: Any) -> None:
-        """右键卡片：打开来源页 / 复制下载链接。"""
+        """右键卡片：打开来源页 / 复制下载链接（无对应链接的项置灰）。"""
         item = self.list.itemAt(pos)
         data = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
         if not isinstance(data, VideoMeta):
@@ -236,7 +243,9 @@ class ResultList(QWidget):
 
         menu = QMenu(self)
         act_open = menu.addAction(self.tr("打开来源页"))
+        act_open.setEnabled(bool(data.page_url))
         act_copy = menu.addAction(self.tr("复制下载链接"))
+        act_copy.setEnabled(bool(data.download_url))
         chosen = menu.exec(self.list.viewport().mapToGlobal(pos))
         if chosen is act_open and data.page_url:
             QDesktopServices.openUrl(QUrl(data.page_url))
@@ -245,12 +254,15 @@ class ResultList(QWidget):
 
     # ---- 槽 ----
     def _open_source_page(self, item: QListWidgetItem) -> None:
-        """双击卡片：浏览器打开素材来源页（无 page_url 时忽略）。"""
+        """双击卡片：浏览器打开素材来源页（无 page_url 时给出提示）。"""
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
 
         data = item.data(Qt.ItemDataRole.UserRole)
-        if not isinstance(data, VideoMeta) or not data.page_url:
+        if not isinstance(data, VideoMeta):
+            return
+        if not data.page_url:
+            Toast.show_message(self, self.tr("该素材没有来源页链接"))
             return
         QDesktopServices.openUrl(QUrl(data.page_url))
 
@@ -262,10 +274,26 @@ class ResultList(QWidget):
                 item.setCheckState(state)
 
     def _emit_download(self) -> None:
-        from ych.ui.u6_common.toast import Toast
-
         metas = self.checked_metas()
         if not metas:
-            Toast.show_message(self, "请先勾选要下载的结果")
+            Toast.show_message(self, self.tr("请先勾选要下载的结果"))
             return
         self.download_requested.emit(metas, self.keyword)
+
+    def retranslate(self) -> None:
+        """语言切换：静态文案 + 已有卡片文本/Tooltip 重翻译。"""
+        self.select_all.setText(self.tr("全选"))
+        self._refresh_footer()
+        self._empty.set_texts(
+            self.tr("还没有搜索结果"),
+            self.tr("在顶部输入关键词，点击「搜索」试试"),
+        )
+        for i in range(self.list.count()):
+            item = self.list.item(i)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, VideoMeta):
+                item.setText(self._card_text(data))
+                item.setToolTip(
+                    f"{data.title or data.video_key}\n"
+                    f"{self.tr('双击打开素材来源页')}",
+                )

@@ -85,17 +85,56 @@ def resolve_theme(mode: str) -> str:
 
 
 def render_theme(mode: str) -> str:
-    """theme.qss 模板 + 配色令牌 → 最终 QSS。"""
+    """theme.qss 模板 + 配色令牌 → 最终 QSS。
+
+    按令牌名长度降序替换：避免 @primary 抢先吃掉 @primary_h 的前缀
+    （否则产生 #5d7bf9_h 之类非法颜色，深浅主题多处被污染）。
+    """
     tokens = _DARK if resolve_theme(mode) == "dark" else _LIGHT
     qss = _qss_path().read_text(encoding="utf-8")
-    for key, value in tokens.items():
-        qss = qss.replace(f"@{key}", value)
+    for key in sorted(tokens, key=len, reverse=True):
+        qss = qss.replace(f"@{key}", tokens[key])
     return qss
 
 
 def apply_theme(app: QApplication | None, mode: str) -> None:
-    """按模式应用主题（可重复调用实现运行时切换）。"""
+    """按模式应用主题（可重复调用实现运行时切换）。
+
+    mode=system 时监听系统深浅色变化（colorSchemeChanged），
+    系统切换主题后界面实时跟随，无需重启。
+    """
     if app is None:
         return
+    global _current_mode
+    _current_mode = mode
     app.setStyleSheet(render_theme(mode))
+    _ensure_scheme_watch(app)
     logger.info("主题已应用：%s（模式 %s）", resolve_theme(mode), mode)
+
+
+# 当前主题模式（apply_theme 记录，供系统主题变化时判断是否跟随）
+_current_mode = "system"
+_scheme_watch_installed = False
+
+
+def _ensure_scheme_watch(app: QApplication) -> None:
+    """对应用只挂一次系统深浅色监听。"""
+    global _scheme_watch_installed
+    if _scheme_watch_installed:
+        return
+    try:
+        hints = QGuiApplication.styleHints()
+        hints.colorSchemeChanged.connect(_on_system_scheme_changed)
+    except Exception:   # 平台不支持 colorScheme 时静默降级
+        logger.debug("colorSchemeChanged 监听不可用", exc_info=True)
+        return
+    _scheme_watch_installed = True
+
+
+def _on_system_scheme_changed(_scheme: object) -> None:
+    """系统深浅色变化：仅「跟随系统」模式重渲染（手动模式不抢用户选择）。"""
+    app = QApplication.instance()
+    if not isinstance(app, QApplication) or _current_mode != "system":
+        return
+    app.setStyleSheet(render_theme("system"))
+    logger.info("系统主题变化，已跟随：%s", detect_system_theme())

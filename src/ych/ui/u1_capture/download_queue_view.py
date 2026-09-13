@@ -16,16 +16,6 @@ from PySide6.QtWidgets import (
 
 from ych.ui.u6_common.platform_labels import platform_label
 
-_STATE_TEXT = {
-    "pending": "等待中",
-    "running": "下载中",
-    "success": "已完成",
-    "failed": "失败",
-    "skipped": "已跳过",
-    "interrupted": "已中断",
-    "canceled": "已取消",
-}
-
 # 状态语义色：成功绿 / 失败红 / 进行中蓝 / 等待灰 / 跳过橙
 _STATE_COLOR = {
     "pending": "#8b95a1",
@@ -53,22 +43,44 @@ class DownloadQueueView(QWidget):
         self._rows: dict[int, int] = {}
         self._bars: dict[int, QProgressBar] = {}
         self._cancel_btns: dict[int, QPushButton] = {}
+        self._states: dict[int, str] = {}      # row_id → 最近状态（重翻译用）
+        self._hint = QLabel(
+            self.tr("下载队列（断点续传，中断后可恢复；进行中的任务可取消）"),
+        )
+        self._hint.setObjectName("muted")
 
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(
-            [self.tr("平台"), self.tr("视频"), self.tr("状态"),
-             self.tr("进度"), self.tr("操作")],
-        )
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
         )
         self.table.setAlternatingRowColors(True)
+        self._set_headers()
         root.addWidget(self.table, 1)
-        hint = QLabel(self.tr("下载队列（断点续传，中断后可恢复；进行中的任务可取消）"))
-        hint.setObjectName("muted")
-        root.addWidget(hint)
+        root.addWidget(self._hint)
+
+    def _set_headers(self) -> None:
+        self.table.setHorizontalHeaderLabels(
+            [self.tr("平台"), self.tr("视频"), self.tr("状态"),
+             self.tr("进度"), self.tr("操作")],
+        )
+
+    def retranslate(self) -> None:
+        """语言切换：表头/提示/已有行的状态与取消按钮重翻译。"""
+        self._set_headers()
+        self._hint.setText(
+            self.tr("下载队列（断点续传，中断后可恢复；进行中的任务可取消）"),
+        )
+        for btn in self._cancel_btns.values():
+            btn.setText(self.tr("取消"))
+        for row_id, state in self._states.items():
+            row = self._rows.get(row_id)
+            if row is None:
+                continue
+            item = self.table.item(row, 2)
+            if item is not None:
+                item.setText(self._state_text(state))
 
     # ---- 更新 ----
     def on_item_updated(self, row_id: int, state: str, progress: float,
@@ -78,6 +90,7 @@ class DownloadQueueView(QWidget):
                 self._ensure_note_row(f"⚠ {msg}")
             return
         row = self._ensure_row(row_id)
+        self._states[row_id] = state
         status_item = QTableWidgetItem(self._state_text(state))
         color = _STATE_COLOR.get(state)
         if color:
@@ -90,7 +103,7 @@ class DownloadQueueView(QWidget):
             btn = self._cancel_btns.get(row_id)
             if btn is not None:
                 btn.setEnabled(False)
-                btn.setToolTip("任务已结束")
+                btn.setToolTip(self.tr("任务已结束"))
 
     @staticmethod
     def _state_text(state: str) -> str:
@@ -111,7 +124,10 @@ class DownloadQueueView(QWidget):
         self.table.setItem(row, 0, QTableWidgetItem(platform_label(platform)))
         self.table.setItem(row, 1, QTableWidgetItem(title))
         if self.table.item(row, 2) is None:
-            self.table.setItem(row, 2, QTableWidgetItem("等待中"))
+            self._states.setdefault(row_id, "pending")
+            self.table.setItem(
+                row, 2, QTableWidgetItem(self._state_text("pending")),
+            )
 
     def _ensure_row(self, row_id: int) -> int:
         if row_id in self._rows:
@@ -124,7 +140,7 @@ class DownloadQueueView(QWidget):
         bar.setValue(0)
         self.table.setCellWidget(row, 3, bar)
         self._bars[row_id] = bar
-        btn = QPushButton("取消")
+        btn = QPushButton(self.tr("取消"))
         btn.setObjectName("secondaryBtn")
         btn.clicked.connect(
             lambda _checked=False, rid=row_id: self.cancel_requested.emit(rid),

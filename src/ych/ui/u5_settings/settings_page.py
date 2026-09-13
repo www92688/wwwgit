@@ -129,8 +129,9 @@ class SettingsPage(QWidget):
         root = QVBoxLayout(content)
 
         # ---- 通用 ----
-        general = QGroupBox(self.tr("通用"))
+        self._group_general = general = QGroupBox(self.tr("通用"))
         form_g = QFormLayout(general)
+        self._form_general = form_g
         self.lang_combo = QComboBox()
         locales = ["zh_CN"]
         if i18n is not None:
@@ -157,20 +158,22 @@ class SettingsPage(QWidget):
 
         row_dir = QHBoxLayout()
         self.workdir_edit = QLineEdit(str(config.get("workdir") or ""))
-        btn_pick = QPushButton(self.tr("选择…"))
-        btn_pick.setObjectName("secondaryBtn")
-        btn_pick.clicked.connect(self._pick_workdir)
+        self.btn_pick_workdir = QPushButton(self.tr("选择…"))
+        self.btn_pick_workdir.setObjectName("secondaryBtn")
+        self.btn_pick_workdir.clicked.connect(self._pick_workdir)
         row_dir.addWidget(self.workdir_edit)
-        row_dir.addWidget(btn_pick)
+        row_dir.addWidget(self.btn_pick_workdir)
         form_g.addRow(self.tr("界面语言"), self.lang_combo)
         form_g.addRow(self.tr("界面主题"), self.theme_combo)
+        self._workdir_row = row_dir
         form_g.addRow(self.tr("工作目录"), row_dir)
         root.addWidget(general)
 
         # ---- 网络 ----
-        network = QGroupBox(self.tr("网络"))
+        self._group_network = network = QGroupBox(self.tr("网络"))
         form_n = QFormLayout(network)
-        self.proxy_check = QCheckBox("启用代理")
+        self._form_network = form_n
+        self.proxy_check = QCheckBox(self.tr("启用代理"))
         self.proxy_host = QLineEdit(str(config.get("proxy_host") or ""))
         self.proxy_port = QLineEdit(str(config.get("proxy_port") or 0))
         row_proxy = QHBoxLayout()
@@ -188,6 +191,7 @@ class SettingsPage(QWidget):
         self.net_btn.setObjectName("secondaryBtn")
         self.net_btn.clicked.connect(self._open_net_check)
         form_n.addRow(self.proxy_check)
+        self._proxy_row = row_proxy
         form_n.addRow(self.tr("代理地址"), row_proxy)
         self.proxy_hint = QLabel(
             self.tr("填写本地 HTTP 代理，格式 IP:端口（Clash 默认 127.0.0.1:7890，"
@@ -204,7 +208,9 @@ class SettingsPage(QWidget):
         root.addWidget(network)
 
         # ---- 服务（素材站 + AI，CC Switch 式列表/配置页）----
-        services_box = QGroupBox(self.tr("服务（素材站与 AI）"))
+        self._group_services = services_box = QGroupBox(
+            self.tr("服务（素材站与 AI）"),
+        )
         services_lay = QVBoxLayout(services_box)
         self._stack = QStackedWidget()
         services_lay.addWidget(self._stack)
@@ -214,7 +220,9 @@ class SettingsPage(QWidget):
         root.addWidget(services_box)
 
         # ---- AI 模型（状态 / 按需下载）----
-        models_box = QGroupBox(self.tr("AI 模型（去水印 / 去字幕 / 重复度）"))
+        self._group_models = models_box = QGroupBox(
+            self.tr("AI 模型（去水印 / 去字幕 / 重复度）"),
+        )
         models_lay = QVBoxLayout(models_box)
         self.model_table = QTableWidget(0, 4)
         self.model_table.setHorizontalHeaderLabels([
@@ -232,11 +240,11 @@ class SettingsPage(QWidget):
         self.model_hint = QLabel("")
         self.model_hint.setWordWrap(True)
         self.model_hint.setStyleSheet(f"color: {_GRAY};")
-        btn_open_models = QPushButton(self.tr("打开模型目录"))
-        btn_open_models.setObjectName("secondaryBtn")
-        btn_open_models.clicked.connect(self._open_models_dir)
+        self.btn_open_models = QPushButton(self.tr("打开模型目录"))
+        self.btn_open_models.setObjectName("secondaryBtn")
+        self.btn_open_models.clicked.connect(self._open_models_dir)
         models_row.addWidget(self.model_hint, 1)
-        models_row.addWidget(btn_open_models)
+        models_row.addWidget(self.btn_open_models)
         models_lay.addLayout(models_row)
         root.addWidget(models_box)
 
@@ -250,16 +258,17 @@ class SettingsPage(QWidget):
         self._refresh_model_rows()
 
         # ---- 高级 ----
-        advanced = QGroupBox(self.tr("高级"))
+        self._group_advanced = advanced = QGroupBox(self.tr("高级"))
         form_a = QFormLayout(advanced)
+        self._form_advanced = form_a
         self.download_conc = QLineEdit(str(config.get("download_concurrency")))
         self.process_conc = QLineEdit(str(config.get("process_concurrency")))
         self.max_retry = QLineEdit(str(config.get("max_retry")))
-        self.readonly_check = QCheckBox("原始素材只读保护")
+        self.readonly_check = QCheckBox(self.tr("原始素材只读保护"))
         self.readonly_check.setChecked(bool(config.get("readonly_protect_raw")))
-        form_a.addRow("下载并行数", self.download_conc)
-        form_a.addRow("处理并行数", self.process_conc)
-        form_a.addRow("失败重试次数", self.max_retry)
+        form_a.addRow(self.tr("下载并行数"), self.download_conc)
+        form_a.addRow(self.tr("处理并行数"), self.process_conc)
+        form_a.addRow(self.tr("失败重试次数"), self.max_retry)
         form_a.addRow("", self.readonly_check)
         root.addWidget(advanced)
         root.addStretch(1)
@@ -312,10 +321,12 @@ class SettingsPage(QWidget):
             )
             ratio = dl.progress.get(str(spec.key))
             if dl.exists(str(spec.key)):
-                status = f"✓ 已就绪（{dl.size_of(str(spec.key)) / 1048576:.1f} MB）"
+                status = self.tr("✓ 已就绪（{mb} MB）").format(
+                    mb=f"{dl.size_of(str(spec.key)) / 1048576:.1f}",
+                )
                 color = _GREEN
             elif ratio is not None:
-                status = f"下载中 {int(ratio * 100)}%"
+                status = self.tr("下载中 {pct}%").format(pct=int(ratio * 100))
                 color = "#2563eb"
             elif not spec.urls:
                 status = self.tr("缺失（无自动下载源，可手动放置文件）")
@@ -474,8 +485,8 @@ class SettingsPage(QWidget):
         self.service_list.addItem(header_ai)
         default_id = str(self._config.get("ai_default_service") or "")
         for service_id, svc in self._ai_services_raw().items():
-            name = str(svc.get("name") or "未命名")
-            model = str(svc.get("model") or "未选模型")
+            name = str(svc.get("name") or self.tr("未命名"))
+            model = str(svc.get("model") or self.tr("未选模型"))
             star = self.tr("★默认　") if service_id == default_id else ""
             item = QListWidgetItem(f"{star}{name}（{model}）")
             item.setData(Qt.ItemDataRole.UserRole, ("ai", service_id))
@@ -522,11 +533,13 @@ class SettingsPage(QWidget):
 
     def _open_ai_add(self) -> None:
         self._editing_ai_id = None
-        self.ai_edit_title.setText(self.tr("添加 AI 服务"))
+        self._ai_edit_title_src = "添加 AI 服务"
+        self.ai_edit_title.setText(self.tr(self._ai_edit_title_src))
         self.ai_name_edit.setText("")
         self.ai_base_edit.setText("")
         self.ai_key_edit.clear()
-        self.ai_key_edit.setPlaceholderText(self.tr("未配置"))
+        self._ai_key_ph_src = "未配置"
+        self.ai_key_edit.setPlaceholderText(self.tr(self._ai_key_ph_src))
         self.ai_model_combo.clear()
         self._stack.setCurrentIndex(_PAGE_AI_EDIT)
 
@@ -541,9 +554,10 @@ class SettingsPage(QWidget):
             self.stock_key_title.setText(f"{label} Key")
             self.stock_key_edit.clear()
             has_key = bool(self._config.get(f"{key}_api_key"))
+            self._stock_key_ph_src = ("已配置（留空并保存=清除）" if has_key
+                                      else "未配置")
             self.stock_key_edit.setPlaceholderText(
-                self.tr("已配置（留空并保存=清除）") if has_key
-                else self.tr("未配置")
+                self.tr(self._stock_key_ph_src)
             )
             self._stack.setCurrentIndex(_PAGE_KEY_EDIT)
         else:
@@ -552,14 +566,14 @@ class SettingsPage(QWidget):
             if svc is None:
                 return
             self._editing_ai_id = key
-            self.ai_edit_title.setText(self.tr("编辑 AI 服务"))
+            self._ai_edit_title_src = "编辑 AI 服务"
+            self.ai_edit_title.setText(self.tr(self._ai_edit_title_src))
             self.ai_name_edit.setText(str(svc.get("name") or ""))
             self.ai_base_edit.setText(str(svc.get("base_url") or ""))
             self.ai_key_edit.clear()
-            self.ai_key_edit.setPlaceholderText(
-                self.tr("已配置（留空=不修改）") if svc.get("has_key")
-                else self.tr("未配置")
-            )
+            self._ai_key_ph_src = ("已配置（留空=不修改）" if svc.get("has_key")
+                                   else "未配置")
+            self.ai_key_edit.setPlaceholderText(self.tr(self._ai_key_ph_src))
             self.ai_model_combo.setCurrentText(str(svc.get("model") or ""))
             self._stack.setCurrentIndex(_PAGE_AI_EDIT)
 
@@ -597,10 +611,12 @@ class SettingsPage(QWidget):
         header = QHBoxLayout()
         btn_back = QPushButton(self.tr("← 返回"))
         btn_back.setObjectName("secondaryBtn")
+        self.btn_back_ai = btn_back
         btn_back.clicked.connect(
             lambda: self._stack.setCurrentIndex(_PAGE_LIST)
         )
-        self.ai_edit_title = QLabel(self.tr("添加 AI 服务"))
+        self._ai_edit_title_src = "添加 AI 服务"
+        self.ai_edit_title = QLabel(self.tr(self._ai_edit_title_src))
         header.addWidget(btn_back)
         header.addStretch(1)
         header.addWidget(self.ai_edit_title)
@@ -608,13 +624,15 @@ class SettingsPage(QWidget):
         lay.addLayout(header)
 
         preset_row = QHBoxLayout()
-        preset_row.addWidget(QLabel(self.tr("预设供应商")))
+        self._preset_provider_label = QLabel(self.tr("预设供应商"))
+        preset_row.addWidget(self._preset_provider_label)
         preset_row.addStretch(1)
         lay.addLayout(preset_row)
 
         preset_flow = FlowLayout()
+        self._preset_chips: list[tuple[QPushButton, str]] = []
         for preset_name, preset_url in AI_PRESETS:
-            chip = QPushButton(preset_name)
+            chip = QPushButton(self.tr(preset_name))
             chip.setObjectName("secondaryBtn")
             chip.setToolTip(preset_url)
             chip.clicked.connect(
@@ -622,6 +640,7 @@ class SettingsPage(QWidget):
                     self._apply_preset(n, u)
             )
             preset_flow.addWidget(chip)
+            self._preset_chips.append((chip, preset_name))
         preset_host = QWidget()
         preset_host.setLayout(preset_flow)
         lay.addWidget(preset_host)
@@ -635,10 +654,12 @@ class SettingsPage(QWidget):
             self.tr("https://api.example.com（/v1、/v3、/v4 等版本后缀按原样使用）")
         )
         self.ai_key_edit = QLineEdit()
+        self._ai_key_ph_src = ""   # 当前占位提示源串（语言切换重翻译用）
         self.ai_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         form.addRow(self.tr("名称"), self.ai_name_edit)
         form.addRow(self.tr("接口地址"), self.ai_base_edit)
         form.addRow("API Key", self.ai_key_edit)
+        self._form_ai = form
 
         model_row = QHBoxLayout()
         self.ai_model_combo = QComboBox()
@@ -651,11 +672,13 @@ class SettingsPage(QWidget):
         self.ai_fetch_btn.clicked.connect(self._fetch_ai_models)
         model_row.addWidget(self.ai_model_combo, 1)
         model_row.addWidget(self.ai_fetch_btn)
-        form.addRow(self.tr("模型"), model_row)
+        self._ai_model_label = QLabel(self.tr("模型"))
+        form.addRow(self._ai_model_label, model_row)
         lay.addLayout(form)
 
         save_row = QHBoxLayout()
         btn_save = QPushButton(self.tr("保存"))
+        self.btn_save_ai = btn_save
         btn_save.clicked.connect(self._save_ai_edit)
         save_row.addStretch(1)
         save_row.addWidget(btn_save)
@@ -745,6 +768,7 @@ class SettingsPage(QWidget):
         header = QHBoxLayout()
         btn_back = QPushButton(self.tr("← 返回"))
         btn_back.setObjectName("secondaryBtn")
+        self.btn_back_stock = btn_back
         btn_back.clicked.connect(
             lambda: self._stack.setCurrentIndex(_PAGE_LIST)
         )
@@ -757,14 +781,17 @@ class SettingsPage(QWidget):
 
         form = QFormLayout()
         self.stock_key_edit = QLineEdit()
+        self._stock_key_ph_src = ""
         self.stock_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         form.addRow("API Key", self.stock_key_edit)
         lay.addLayout(form)
         note = QLabel(self.tr("密钥存储在系统凭据管理器，不上传、不入库。"))
+        self._stock_note_label = note
         lay.addWidget(note)
 
         save_row = QHBoxLayout()
         btn_save = QPushButton(self.tr("保存"))
+        self.btn_save_stock = btn_save
         btn_save.clicked.connect(self._save_stock_key)
         save_row.addStretch(1)
         save_row.addWidget(btn_save)
@@ -786,7 +813,9 @@ class SettingsPage(QWidget):
 
     # ================= 其余分组 =================
     def _pick_workdir(self) -> None:
-        chosen = QFileDialog.getExistingDirectory(self, "选择素材工作目录")
+        chosen = QFileDialog.getExistingDirectory(
+            self, self.tr("选择素材工作目录"),
+        )
         if chosen:
             path = Path(chosen)
             self.workdir_edit.setText(str(path))
@@ -897,3 +926,96 @@ class SettingsPage(QWidget):
         elif key == "readonly_protect_raw":
             if self.readonly_check.isChecked() != bool(value):
                 self.readonly_check.setChecked(bool(value))
+        elif key == "theme":
+            if self.theme_combo.currentData() != str(value):
+                idx = self.theme_combo.findData(str(value))
+                if idx >= 0:
+                    self.theme_combo.setCurrentIndex(idx)
+        elif key == "language":
+            if self.lang_combo.currentText() != str(value):
+                idx = self.lang_combo.findText(str(value))
+                if idx >= 0:
+                    self.lang_combo.setCurrentIndex(idx)
+
+    def retranslate(self) -> None:
+        """语言切换：分组标题/表单标签/按钮/提示重翻译；列表与模型表重建。"""
+        self._group_general.setTitle(self.tr("通用"))
+        self._group_network.setTitle(self.tr("网络"))
+        self._group_services.setTitle(self.tr("服务（素材站与 AI）"))
+        self._group_models.setTitle(self.tr("AI 模型（去水印 / 去字幕 / 重复度）"))
+        self._group_advanced.setTitle(self.tr("高级"))
+        for form, pairs in (
+            (self._form_general, ((self.lang_combo, "界面语言"),
+                                  (self.theme_combo, "界面主题"),
+                                  (self._workdir_row, "工作目录"))),
+            (self._form_network, ((self.proxy_check, ""),
+                                  (self._proxy_row, "代理地址"))),
+            (self._form_advanced, ((self.download_conc, "下载并行数"),
+                                   (self.process_conc, "处理并行数"),
+                                   (self.max_retry, "失败重试次数"))),
+        ):
+            for field, label_src in pairs:
+                if not label_src:
+                    continue
+                label = form.labelForField(field)
+                if isinstance(label, QLabel):
+                    label.setText(self.tr(label_src))
+        for i, (label_src, _val) in enumerate(
+            (("跟随系统", "system"), ("浅色", "light"), ("深色", "dark")),
+        ):
+            self.theme_combo.setItemText(i, self.tr(label_src))
+        self.btn_pick_workdir.setText(self.tr("选择…"))
+        self.proxy_check.setText(self.tr("启用代理"))
+        self.proxy_auto_btn.setText(self.tr("自动检测"))
+        self.proxy_auto_btn.setToolTip(
+            self.tr("自动探测系统代理与常见本地端口（Clash/v2rayN 等），"
+                    "验证可通外网后自动填入并启用"),
+        )
+        self.proxy_hint.setText(
+            self.tr("填写本地 HTTP 代理，格式 IP:端口（Clash 默认 127.0.0.1:7890，"
+                    "v2rayN 默认 10809）。VPN 的订阅链接不是代理地址。"
+                    "若 VPN 使用 TUN/系统代理模式，无需启用本项。"),
+        )
+        self.net_btn.setText(self.tr("网络检测"))
+        self.readonly_check.setText(self.tr("原始素材只读保护"))
+        self.btn_open_models.setText(self.tr("打开模型目录"))
+        self.model_table.setHorizontalHeaderLabels([
+            self.tr("模型文件"), self.tr("用途"), self.tr("状态"),
+            self.tr("操作"),
+        ])
+        self._rebuild_service_list()
+        self._refresh_model_rows()
+        self.btn_add_service.setText(self.tr("添加 AI 服务"))
+        self.btn_edit_service.setText(self.tr("编辑"))
+        self.btn_default_service.setText(self.tr("设为默认"))
+        self.btn_del_service.setText(self.tr("删除"))
+        for field, label_src in ((self.ai_name_edit, "名称"),
+                                 (self.ai_base_edit, "接口地址")):
+            label = self._form_ai.labelForField(field)
+            if isinstance(label, QLabel):
+                label.setText(self.tr(label_src))
+        self._ai_model_label.setText(self.tr("模型"))
+        self.btn_back_ai.setText(self.tr("← 返回"))
+        self.btn_back_stock.setText(self.tr("← 返回"))
+        self.btn_save_ai.setText(self.tr("保存"))
+        self.btn_save_stock.setText(self.tr("保存"))
+        self.ai_fetch_btn.setText(self.tr("拉取模型"))
+        self._preset_provider_label.setText(self.tr("预设供应商"))
+        for chip, preset_name in self._preset_chips:
+            chip.setText(self.tr(preset_name))
+        self.ai_edit_title.setText(self.tr(self._ai_edit_title_src))
+        self._stock_note_label.setText(
+            self.tr("密钥存储在系统凭据管理器，不上传、不入库。"),
+        )
+        self.ai_name_edit.setPlaceholderText(
+            self.tr("如：我的中转站 / OpenRouter"))
+        self.ai_base_edit.setPlaceholderText(
+            self.tr("https://api.example.com（/v1、/v3、/v4 等版本后缀按原样使用）")
+        )
+        self.ai_model_combo.setPlaceholderText(
+            self.tr("点「拉取模型」或直接填写模型名"))
+        if self._ai_key_ph_src:
+            self.ai_key_edit.setPlaceholderText(self.tr(self._ai_key_ph_src))
+        if self._stock_key_ph_src:
+            self.stock_key_edit.setPlaceholderText(
+                self.tr(self._stock_key_ph_src))

@@ -54,7 +54,7 @@ class Toast(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(label)
         if error and log_dir is not None:
-            btn = QPushButton("查看日志")
+            btn = QPushButton(self.tr("查看日志"))
             btn.setObjectName("secondaryBtn")
 
             def _open_logs() -> None:

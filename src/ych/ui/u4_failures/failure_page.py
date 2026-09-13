@@ -26,6 +26,16 @@ class FailRecordModel(QAbstractTableModel):
     def __init__(self, rows: list[Any] | None = None) -> None:
         super().__init__()
         self._rows: list[Any] = list(rows or [])
+        self.headers = list(self.HEADERS)
+
+    def retranslate(self) -> None:
+        """语言切换：重译表头并通知视图刷新。"""
+        self.headers = [
+            self.tr("文件名"), self.tr("失败原因"), self.tr("错误码"),
+            self.tr("时间"), self.tr("类型"),
+        ]
+        self.headerDataChanged.emit(Qt.Orientation.Horizontal, 0,
+                                    len(self.headers) - 1)
 
     def set_rows(self, rows: list[Any]) -> None:
         self.beginResetModel()
@@ -65,7 +75,7 @@ class FailRecordModel(QAbstractTableModel):
                    role: int = Qt.ItemDataRole.DisplayRole) -> object:
         if (orientation == Qt.Orientation.Horizontal
                 and role == Qt.ItemDataRole.DisplayRole):
-            return self.HEADERS[section]
+            return self.headers[section]
         return None
 
 
@@ -101,7 +111,8 @@ class FailurePage(QWidget):
         self.table.setColumnWidth(0, 260)
         self.table.setColumnWidth(1, 300)
         self.table.setColumnWidth(2, 90)
-        attach_empty_state(
+        self._model.retranslate()
+        self._empty = attach_empty_state(
             self.table, self.tr("没有失败记录"),
             self.tr("处理失败的任务会集中在这里，可一键重新处理"),
             is_empty=lambda: self._model.rowCount() == 0,
@@ -109,18 +120,18 @@ class FailurePage(QWidget):
         root.addWidget(self.table, 1)
 
         row = QHBoxLayout()
-        btn_reprocess = QPushButton(self.tr("重新处理"))
-        btn_delete = QPushButton(self.tr("清除"))
-        btn_delete.setObjectName("secondaryBtn")
-        btn_refresh = QPushButton(self.tr("刷新"))
-        btn_refresh.setObjectName("secondaryBtn")
-        btn_reprocess.clicked.connect(self._reprocess)
-        btn_delete.clicked.connect(self._delete_selected)
-        btn_refresh.clicked.connect(self.refresh)
-        row.addWidget(btn_reprocess)
-        row.addWidget(btn_delete)
+        self.btn_reprocess = QPushButton(self.tr("重新处理"))
+        self.btn_delete = QPushButton(self.tr("清除"))
+        self.btn_delete.setObjectName("secondaryBtn")
+        self.btn_refresh = QPushButton(self.tr("刷新"))
+        self.btn_refresh.setObjectName("secondaryBtn")
+        self.btn_reprocess.clicked.connect(self._reprocess)
+        self.btn_delete.clicked.connect(self._delete_selected)
+        self.btn_refresh.clicked.connect(self.refresh)
+        row.addWidget(self.btn_reprocess)
+        row.addWidget(self.btn_delete)
         row.addStretch(1)
-        row.addWidget(btn_refresh)
+        row.addWidget(self.btn_refresh)
         root.addLayout(row)
 
         self.refresh()
@@ -171,3 +182,14 @@ class FailurePage(QWidget):
             self._fails.delete(rid)
         Toast.show_message(self, self.tr("已删除 {} 条失败记录").format(len(ids)))
         self.refresh()
+
+    def retranslate(self) -> None:
+        """语言切换：按钮/空状态/表头重翻译（表内容为数据保持原样）。"""
+        self.btn_reprocess.setText(self.tr("重新处理"))
+        self.btn_delete.setText(self.tr("清除"))
+        self.btn_refresh.setText(self.tr("刷新"))
+        self._empty.set_texts(
+            self.tr("没有失败记录"),
+            self.tr("处理失败的任务会集中在这里，可一键重新处理"),
+        )
+        self._model.retranslate()

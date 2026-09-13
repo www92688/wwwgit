@@ -122,6 +122,9 @@ def main() -> int:
     # 底部状态栏：任务进行中摘要（进行中数量/平均进度/批次完成度）
     window.attach_task_status(ctx.scheduler())
 
+    # 语言切换即时生效：设置页切换 → i18n 信号 → 主窗口级联重翻译
+    ctx.i18n().locale_changed.connect(window.retranslate)
+
     # 预处理/去重工作台素材：启动加载一次，之后下载成功即自动刷新
     refresh_assets = wire_asset_refresh(ctx, preprocess, dedup, dm)
 
@@ -142,12 +145,25 @@ def main() -> int:
 
     # 处理类任务反馈：完成/失败 Toast，分析报告回填去重页
     toast = wire_task_feedback(ctx, ctx.scheduler(), dedup, window, compare_srcs)
-    preprocess.submitted.connect(lambda n: toast(f"已提交 {n} 条预处理任务"))
-    dedup.analyze_requested.connect(lambda _srcs: toast("已提交重复度分析"))
+
+    def _tr(msg: str) -> str:
+        # 运行时 Toast 文案翻译（app 上下文；lupdate 按字面量提取）
+        from PySide6.QtCore import QCoreApplication
+
+        return QCoreApplication.translate("AppFeedback", msg)
+
+    preprocess.submitted.connect(
+        lambda n: toast(_tr("已提交 {n} 条预处理任务").format(n=n)))
+    dedup.analyze_requested.connect(
+        lambda _srcs: toast(_tr("已提交重复度分析")))
     dedup.dedup_requested.connect(
-        lambda srcs, _params: toast(f"已提交 {len(srcs)} 条去重任务"))
+        lambda srcs, _params: toast(
+            _tr("已提交 {n} 条去重任务").format(n=len(srcs))))
     coordinator.search_failed.connect(
-        lambda _kw, msg: toast(f"搜索失败：{msg}", error=True, timeout_ms=8000),
+        lambda _kw, msg: toast(
+            _tr("搜索失败：{msg}").format(msg=msg),
+            error=True, timeout_ms=8000,
+        ),
     )
     # 搜索失败时恢复「搜索」按钮可用
     coordinator.search_failed.connect(capture.on_search_failed)
@@ -211,48 +227,61 @@ def wire_task_feedback(
         Toast.show_message(parent, msg, error=error, log_dir=ctx.log_dir(),
                            timeout_ms=timeout_ms)
 
-    labels = {"preprocess": "预处理", "dedup": "去重", "compare": "重复度分析"}
-
     class _Bridge(QObject):
+        def _label(self, ttype: str) -> str:
+            return {
+                "preprocess": self.tr("预处理"),
+                "dedup": self.tr("去重"),
+                "compare": self.tr("重复度分析"),
+            }.get(ttype, ttype)
+
         def on_done(
             self, task_id: str, ttype: str, state: str,
             message: str, summary: Any,
         ) -> None:
             if ttype == "download":
                 return                  # 下载队列视图已逐条反馈
-            label = labels.get(ttype, ttype)
+            label = self._label(ttype)
             if state == "success":
                 failed = int(summary.get("failed") or 0)
                 skipped = int(summary.get("skipped") or 0)
                 extra = "".join(
-                    f"，{word} {count} 条"
-                    for word, count in (("失败", failed), ("跳过", skipped))
-                    if count
+                    self.tr("，{word} {count} 条").format(word=w, count=c)
+                    for w, c in ((self.tr("失败"), failed),
+                                 (self.tr("跳过"), skipped))
+                    if c
                 )
                 if ttype == "preprocess":
-                    toast(f"预处理完成：成功 {len(summary.get('outputs') or [])} 条"
-                          f"{extra}；输出与原文件同目录（_cleaned 后缀）")
+                    toast(self.tr(
+                        "预处理完成：成功 {n} 条{extra}；输出与原文件同目录"
+                        "（_cleaned 后缀）",
+                    ).format(n=len(summary.get("outputs") or []), extra=extra))
                 elif ttype == "dedup":
                     before = summary.get("before_pct")
                     after = summary.get("after_pct")
-                    tail = (f"；重复度 {before}% → {after}%"
-                            if before is not None and after is not None else "")
-                    toast(f"去重完成：成功 {len(summary.get('outputs') or [])} 条"
-                          f"{extra}{tail}；输出在 已去重/ 目录")
+                    tail = (self.tr("；重复度 {a}% → {b}%").format(
+                        a=before, b=after,
+                    ) if before is not None and after is not None else "")
+                    toast(self.tr(
+                        "去重完成：成功 {n} 条{extra}{tail}；输出在 已去重/ 目录",
+                    ).format(n=len(summary.get("outputs") or []),
+                             extra=extra, tail=tail))
                 elif ttype == "compare":
                     srcs = compare_srcs.get(task_id) or []
                     if srcs:
                         report = ctx.daos().reports.latest_for(Path(srcs[0]))
                         if report is not None:
                             dedup.render_report(report)
-                    toast(f"重复度分析完成{extra}，已按结果标注推荐档位")
+                    toast(self.tr("重复度分析完成{extra}，已按结果标注推荐档位")
+                          .format(extra=extra))
             elif state == "failed":
-                extra = ("。可到 设置 → AI 模型 下载所需模型"
+                extra = (self.tr("。可到 设置 → AI 模型 下载所需模型")
                          if "AI001" in message else "")
-                toast(f"{label}失败：{message}{extra}",
-                      error=True, timeout_ms=8000)
+                toast(self.tr("{label}失败：{msg}{extra}").format(
+                    label=label, msg=message, extra=extra,
+                ), error=True, timeout_ms=8000)
             elif state == "canceled":
-                toast(f"{label}任务已取消")
+                toast(self.tr("{label}任务已取消").format(label=label))
 
     bridge = _Bridge()
     bridge.setParent(parent)    # 挂到主窗口：防 GC 断连 + 线程归属主线程

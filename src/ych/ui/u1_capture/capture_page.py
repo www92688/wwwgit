@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
 from ych.ui.u1_capture.download_queue_view import DownloadQueueView
 from ych.ui.u1_capture.filter_panel import FilterPanel
 from ych.ui.u1_capture.result_list import ResultList
+from ych.ui.u6_common.toast import Toast
 
 _CN_PLATFORMS = ("douyin", "kuaishou", "bilibili", "xiaohongshu")
 _GLOBAL_PLATFORMS = ("tiktok", "youtube")
@@ -72,6 +74,7 @@ class CapturePage(QWidget):
         self._ai_gateway = ai_gateway
         self._open_files = open_files
         self._ai_worker: Any | None = None
+        self._searching = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -80,11 +83,8 @@ class CapturePage(QWidget):
         # ---- 步骤引导 ----
         from ych.ui.u6_common.step_hint import StepHint
 
-        root.addWidget(StepHint([
-            self.tr("输入关键词（逗号分隔可批量）"),
-            self.tr("搜索并勾选结果"),
-            self.tr("「下载选中」入队"),
-        ]))
+        self._step_hint = StepHint(self._step_texts())
+        root.addWidget(self._step_hint)
 
         # ---- 顶部：关键词 + 历史词 + AI 扩展 + 搜索 ----
         top = QHBoxLayout()
@@ -95,17 +95,18 @@ class CapturePage(QWidget):
                 self.history_combo.addItem(kw)
         self.keyword_edit = QLineEdit()
         self.keyword_edit.setPlaceholderText(
-            self.tr("输入关键词，多个用逗号分隔")
+            self.tr("输入关键词，多个用逗号分隔"),
         )
         self.keyword_edit.returnPressed.connect(self._on_search)
         self.btn_search = QPushButton(self.tr("搜索"))
         self.btn_search.clicked.connect(self._on_search)
         self.btn_ai_expand = QPushButton(self.tr("AI 扩展"))
         self.btn_ai_expand.setToolTip(
-            self.tr("用 AI 围绕第一个关键词扩展搜索词（需在设置页配置 AI 服务）")
+            self.tr("用 AI 围绕第一个关键词扩展搜索词（需在设置页配置 AI 服务）"),
         )
         self.btn_ai_expand.clicked.connect(self._on_ai_expand)
-        top.addWidget(QLabel(self.tr("关键词")))
+        self._keyword_label = QLabel(self.tr("关键词"))
+        top.addWidget(self._keyword_label)
         top.addWidget(self.keyword_edit, 1)
         top.addWidget(self.history_combo)
         top.addWidget(self.btn_ai_expand)
@@ -126,7 +127,8 @@ class CapturePage(QWidget):
 
         # ---- 底部：下载数量上限 + 查看文件 + 队列视图 ----
         bottom = QHBoxLayout()
-        bottom.addWidget(QLabel(self.tr("单次下载数量上限")))
+        self._limit_label = QLabel(self.tr("单次下载数量上限"))
+        bottom.addWidget(self._limit_label)
         self.limit_spin = QSpinBox()
         self.limit_spin.setRange(1, 200)
         default_limit = int(config.get_typed("download_limit", int)) if (
@@ -160,14 +162,15 @@ class CapturePage(QWidget):
         from PySide6.QtWidgets import QGridLayout
 
         box = QGroupBox(self.tr("采集平台"))
+        self._platform_box = box
         layout = QVBoxLayout(box)
         self.cn_checks: dict[str, QCheckBox] = {}
         self.global_checks: dict[str, QCheckBox] = {}   # 受总开关约束
         self.stock_checks: dict[str, QCheckBox] = {}    # 素材站：始终可用
 
-        cn_note = QLabel(self.tr("国内平台（暂未开放，框架占位）"))
-        cn_note.setObjectName("muted")
-        layout.addWidget(cn_note)
+        self._cn_note = QLabel(self.tr("国内平台（暂未开放，框架占位）"))
+        self._cn_note.setObjectName("muted")
+        layout.addWidget(self._cn_note)
         cn_grid = QGridLayout()
         cn_grid.setContentsMargins(0, 0, 0, 0)
         for i, (pid, name) in enumerate(
@@ -202,6 +205,7 @@ class CapturePage(QWidget):
             zip(_STOCK_PLATFORMS, _STOCK_NAMES, strict=True),
         ):
             cb = QCheckBox(f"{name}" + self.tr("（免费素材站）"))
+            cb.setProperty("base_name", name)
             cb.setChecked(True)
             cb.setToolTip(self.tr("免费素材站可直连，不受国外总开关约束；"
                                   "需在设置页配置对应 Key"))
@@ -211,19 +215,27 @@ class CapturePage(QWidget):
         return box
 
     # ---- 槽 ----
+    def _step_texts(self) -> list[str]:
+        """步骤条文案（语言切换时重取 tr）。"""
+        return [
+            self.tr("输入关键词（逗号分隔可批量）"),
+            self.tr("搜索并勾选结果"),
+            self.tr("「下载选中」入队"),
+        ]
+
     def _on_history_activated(self, index: int) -> None:
         text = self.history_combo.itemText(index)
         if index > 0 and text:
             self.keyword_edit.setText(text)
 
     def _on_search(self) -> None:
-        from ych.ui.u6_common.toast import Toast
-
         raw = self.keyword_edit.text().strip()
         if not raw:
-            Toast.show_message(self, "请先输入关键词再搜索")
+            Toast.show_message(self, self.tr("请先输入关键词再搜索"))
             return
         if self._coordinator is None:
+            Toast.show_message(self, self.tr("搜索服务未就绪，无法搜索"),
+                               error=True)
             return
         keywords = [k.strip() for k in raw.replace("，", ",").split(",") if k.strip()]
         selected = [
@@ -233,9 +245,11 @@ class CapturePage(QWidget):
             if cb.isChecked()
         ]
         if not selected:
-            Toast.show_message(self, "请至少勾选一个采集平台")
+            Toast.show_message(self, self.tr("请至少勾选一个采集平台"))
             return
-        Toast.show_message(self, f"正在搜索：{'、'.join(keywords)} …")
+        Toast.show_message(
+            self, self.tr("正在搜索：{kw} …").format(kw="、".join(keywords)),
+        )
         self._set_searching(True)
         self.result_list.clear_results()
         self._coordinator.search_multi(
@@ -245,6 +259,7 @@ class CapturePage(QWidget):
 
     def _set_searching(self, searching: bool) -> None:
         """搜索进行中：按钮禁用防重复提交，文案给出状态反馈。"""
+        self._searching = searching
         self.btn_search.setEnabled(not searching)
         self.btn_search.setText(self.tr("搜索中…") if searching
                                 else self.tr("搜索"))
@@ -374,13 +389,11 @@ class CapturePage(QWidget):
 
     def confirm_foreign_enable(self, reachable: bool) -> None:
         """外部检测回调：可达→置位总开关并持久化；不可达→回弹并提示。"""
-        from PySide6.QtWidgets import QMessageBox
-
         if not reachable:
             self.foreign_master.setChecked(False)
             QMessageBox.warning(
-                self, "外网不可达",
-                "当前网络环境无法访问外网平台，请检查 VPN/代理设置",
+                self, self.tr("外网不可达"),
+                self.tr("当前网络环境无法访问外网平台，请检查 VPN/代理设置"),
             )
             return
         if self._config is not None:
@@ -401,6 +414,8 @@ class CapturePage(QWidget):
 
     def _on_download(self, metas: list[Any], keyword: str) -> None:
         if self._dm is None:
+            Toast.show_message(self, self.tr("下载服务未就绪，无法入队"),
+                               error=True)
             return
         self._dm.enqueue_downloads(metas, keyword, int(self.limit_spin.value()))
 
@@ -408,9 +423,10 @@ class CapturePage(QWidget):
         """打开下载保存位置（工作目录）；未设置时给出引导提示。"""
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
-        from PySide6.QtWidgets import QMessageBox
 
         if self._open_files is None:
+            Toast.show_message(self, self.tr("文件定位功能未装配"),
+                               error=True)
             return
         try:
             path = Path(self._open_files())
@@ -429,3 +445,36 @@ class CapturePage(QWidget):
             )
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def retranslate(self) -> None:
+        """语言切换：静态文案重翻译 + 搜索按钮按当前状态重算。"""
+        self._step_hint.set_steps(self._step_texts())
+        self.history_combo.setItemText(0, self.tr("历史搜索词"))
+        self.keyword_edit.setPlaceholderText(
+            self.tr("输入关键词，多个用逗号分隔"),
+        )
+        self._keyword_label.setText(self.tr("关键词"))
+        self._limit_label.setText(self.tr("单次下载数量上限"))
+        self.btn_search.setText(self.tr("搜索中…") if self._searching
+                                else self.tr("搜索"))
+        self.btn_ai_expand.setText(self.tr("AI 扩展"))
+        self.btn_ai_expand.setToolTip(
+            self.tr("用 AI 围绕第一个关键词扩展搜索词（需在设置页配置 AI 服务）"),
+        )
+        self.btn_open_files.setText(self.tr("查看文件"))
+        self.btn_open_files.setToolTip(
+            self.tr("打开下载文件的保存位置（工作目录）"),
+        )
+        self._platform_box.setTitle(self.tr("采集平台"))
+        self._cn_note.setText(self.tr("国内平台（暂未开放，框架占位）"))
+        self.foreign_master.setText(self.tr("国外平台（TikTok / YouTube）"))
+        self.foreign_master.setToolTip(
+            self.tr("开启前会自动检测外网可达性；TikTok/YouTube 目前为占位未开放"),
+        )
+        for cb in self.stock_checks.values():
+            cb.setText(f"{cb.property('base_name')}{self.tr('（免费素材站）')}")
+            cb.setToolTip(self.tr("免费素材站可直连，不受国外总开关约束；"
+                                  "需在设置页配置对应 Key"))
+        self.filter_panel.retranslate()
+        self.result_list.retranslate()
+        self.queue_view.retranslate()

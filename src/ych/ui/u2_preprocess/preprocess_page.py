@@ -52,15 +52,12 @@ class PreprocessPage(QWidget):
         # ---- 步骤引导 ----
         from ych.ui.u6_common.step_hint import StepHint
 
-        root.addWidget(StepHint([
-            self.tr("左侧勾选素材"),
-            self.tr("右侧选择处理项（手动模式可预览后框选区域）"),
-            self.tr("「开始处理」提交"),
-        ]))
+        self._step_hint = StepHint(self._step_texts())
+        root.addWidget(self._step_hint)
 
         split = QSplitter()
         self.asset_tree = AssetTree()
-        attach_empty_state(
+        self._empty = attach_empty_state(
             self.asset_tree, self.tr("暂无素材"),
             self.tr("先到「采集工作台」下载素材，\n或把视频文件放入工作目录"),
         )
@@ -68,6 +65,8 @@ class PreprocessPage(QWidget):
         btn_all.setObjectName("secondaryBtn")
         btn_none = QPushButton(self.tr("全不选"))
         btn_none.setObjectName("secondaryBtn")
+        self.btn_all = btn_all
+        self.btn_none = btn_none
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.addWidget(self.asset_tree, 1)
@@ -115,6 +114,14 @@ class PreprocessPage(QWidget):
         )
 
     # ---- 数据 ----
+    def _step_texts(self) -> list[str]:
+        """步骤条文案（语言切换时重取 tr）。"""
+        return [
+            self.tr("左侧勾选素材"),
+            self.tr("右侧选择处理项（手动模式可预览后框选区域）"),
+            self.tr("「开始处理」提交"),
+        ]
+
     def set_assets(self, rows: list[Any]) -> None:
         self.asset_tree.set_assets(rows)
         refresh_empty = getattr(self.asset_tree, "_refresh_empty_state", None)
@@ -185,7 +192,17 @@ class PreprocessPage(QWidget):
     def _on_start(self) -> None:
         payload: object | None = self.build_payload()
         if payload is None:
-            Toast.show_message(self, "请先在左侧勾选要处理的素材")
+            Toast.show_message(self, self.tr("请先在左侧勾选要处理的素材"))
+            return
+        if self._manual_without_regions():
+            Toast.show_message(
+                self,
+                self.tr(
+                    "「手动框选」需要先「预览框选帧」并在画布上框选区域；"
+                    "若不需要去水印/去字幕，请改为「关闭」或「自动检测」",
+                ),
+                error=True,
+            )
             return
         if self._scheduler is None:
             return
@@ -195,20 +212,34 @@ class PreprocessPage(QWidget):
         self._scheduler.submit(payload)
         self.submitted.emit(len(items))
 
+    def _manual_without_regions(self) -> bool:
+        """手动框选模式但画布没有任何框选区域——提交等于该维度空转。"""
+        ops = self.option_panel.to_ops(None)
+        boxes = getattr(self.canvas, "_boxes", [])
+        if boxes:
+            return False
+        return (ops.remove_watermark_mode == "manual"
+                or ops.remove_subtitle_mode == "manual")
+
     # ---- 预览框选帧 ----
     def _on_preview(self) -> None:
         """取第一个勾选素材的中间帧显示到画布，供手动框选。"""
         srcs = self.asset_tree.checked_files()
         if not srcs:
-            Toast.show_message(self, "请先在左侧勾选素材，再预览框选帧")
+            Toast.show_message(
+                self, self.tr("请先在左侧勾选素材，再预览框选帧"),
+            )
             return
         self._load_frame_async(srcs[0])
 
     def _load_frame_async(self, src: str) -> None:
-        """后台抽帧 → 画布显示；进行中时忽略重复请求。"""
+        """后台抽帧 → 画布显示；进行中时提示稍候，不静默丢弃。"""
         from ych.ui.u6_common.llm_worker import LlmWorker
 
-        if self._frame_loader is None or self._preview_worker is not None:
+        if self._frame_loader is None:
+            return
+        if self._preview_worker is not None:
+            Toast.show_message(self, self.tr("预览帧正在加载，请稍候…"))
             return
         self.btn_preview.setEnabled(False)
         loader = self._frame_loader
@@ -254,4 +285,20 @@ class PreprocessPage(QWidget):
 
     def _on_preview_failed(self, msg: str) -> None:
         self._restore_preview()
-        Toast.show_message(self, f"抽帧失败：{msg}", error=True)
+        Toast.show_message(self, self.tr("抽帧失败：{msg}").format(msg=msg),
+                           error=True)
+
+    def retranslate(self) -> None:
+        """语言切换：静态文案重翻译；动态按钮经刷新方法重算。"""
+        self._step_hint.set_steps(self._step_texts())
+        self._empty.set_texts(
+            self.tr("暂无素材"),
+            self.tr("先到「采集工作台」下载素材，\n或把视频文件放入工作目录"),
+        )
+        self.btn_all.setText(self.tr("全选"))
+        self.btn_none.setText(self.tr("全不选"))
+        self.btn_preview.setText(self.tr("预览框选帧"))
+        self.asset_tree.retranslate()
+        self.option_panel.retranslate()
+        self.canvas.retranslate()
+        self._refresh_start_btn()

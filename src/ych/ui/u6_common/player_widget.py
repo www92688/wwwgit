@@ -10,7 +10,7 @@ class PlayerWidget(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._fallback = QLabel("预览不可用")
+        self._fallback = QLabel(self.tr("预览不可用"))
         self._fallback.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._video = None
         self._player = None
@@ -25,6 +25,9 @@ class PlayerWidget(QWidget):
             layout.addWidget(self._video)
         except Exception:
             layout.addWidget(self._fallback)
+
+    def retranslate(self) -> None:
+        self._fallback.setText(self.tr("预览不可用"))
 
     def play(self, path: str | None) -> None:
         """播放本地文件；path 为空即停止。"""

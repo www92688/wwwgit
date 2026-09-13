@@ -69,49 +69,44 @@ class DedupPage(QWidget):
         # ---- 步骤引导 ----
         from ych.ui.u6_common.step_hint import StepHint
 
-        root.addWidget(StepHint([
-            self.tr("左侧勾选素材"),
-            self.tr("「分析重复度」后选方案（轻/中/重度或自定义）"),
-            self.tr("「开始去重」提交"),
-        ]))
+        self._step_hint = StepHint(self._step_texts())
+        root.addWidget(self._step_hint)
 
         split = QHBoxLayout()
 
         # ---- 左：素材勾选列表 ----
         left_box = QVBoxLayout()
-        left_box.addWidget(QLabel(self.tr("待去重素材")))
+        self._asset_label = QLabel(self.tr("待去重素材"))
+        left_box.addWidget(self._asset_label)
         self.asset_list = QListWidget()
-        attach_empty_state(
+        self._empty = attach_empty_state(
             self.asset_list, self.tr("暂无素材"),
             self.tr("先到「采集工作台」下载素材，\n或把视频文件放入工作目录"),
         )
         left_box.addWidget(self.asset_list, 1)
-        btn_all = QPushButton(self.tr("全选"))
-        btn_all.setObjectName("secondaryBtn")
-        btn_all.clicked.connect(self._select_all)
-        left_box.addWidget(btn_all)
+        self.btn_all = QPushButton(self.tr("全选"))
+        self.btn_all.setObjectName("secondaryBtn")
+        self.btn_all.clicked.connect(self._select_all)
+        left_box.addWidget(self.btn_all)
         split.addLayout(left_box, 1)
 
         # ---- 右：方案区 ----
         right_box = QVBoxLayout()
-        right_box.addWidget(QLabel(self.tr("去重方案")))
+        self._scheme_label = QLabel(self.tr("去重方案"))
+        right_box.addWidget(self._scheme_label)
         self.radio_group = QButtonGroup(self)
         self._preset_radios: dict[str, QRadioButton] = {}
-        preset_descs = {
-            "light": self.tr("保守调整：轻度镜像/微裁切/轻调色，画质损失最小"),
-            "mid": self.tr("多手法组合：推荐日常使用，重复度下降明显"),
-            "heavy": self.tr("强力规避：全部手法叠加，适合重复度很高的素材"),
-        }
+        self._desc_labels: dict[str, QLabel] = {}
+        self._recommended_id = ""
         cards_row = QHBoxLayout()
         cards_row.setSpacing(8)
-        for pid, label in (("light", "轻度"), ("mid", "中度"),
-                           ("heavy", "重度")):
+        for pid in ("light", "mid", "heavy"):
             card = QWidget()
             card.setObjectName("presetCard")
             card_lay = QVBoxLayout(card)
             card_lay.setContentsMargins(10, 8, 10, 8)
             card_lay.setSpacing(4)
-            radio = QRadioButton(label)
+            radio = QRadioButton()
             radio.setProperty("preset_id", pid)
             self.radio_group.addButton(radio)
             radio.setChecked(pid == "mid")
@@ -125,7 +120,7 @@ class DedupPage(QWidget):
             radio.toggled.connect(
                 lambda on, c=card: _set_card_checked(c, on),
             )
-            desc = QLabel(preset_descs[pid])
+            desc = QLabel(self._preset_descriptions()[pid])
             desc.setObjectName("muted")
             desc.setWordWrap(True)
             card_lay.addWidget(radio)
@@ -133,19 +128,21 @@ class DedupPage(QWidget):
             _set_card_checked(card, radio.isChecked())
             cards_row.addWidget(card, 1)
             self._preset_radios[pid] = radio
+            self._desc_labels[pid] = desc
+        self._refresh_preset_labels()
         right_box.addLayout(cards_row)
         self.editor = SchemeEditor(self._registry)
         right_box.addWidget(self.editor, 1)
 
         row_btns = QHBoxLayout()
-        btn_apply_preset = QPushButton(self.tr("套用预设"))
-        btn_apply_preset.setObjectName("secondaryBtn")
-        btn_apply_preset.clicked.connect(self._apply_preset)
-        btn_to_custom = QPushButton(self.tr("预设→自定义微调"))
-        btn_to_custom.setObjectName("secondaryBtn")
-        btn_to_custom.clicked.connect(self._to_custom)
-        row_btns.addWidget(btn_apply_preset)
-        row_btns.addWidget(btn_to_custom)
+        self.btn_apply_preset = QPushButton(self.tr("套用预设"))
+        self.btn_apply_preset.setObjectName("secondaryBtn")
+        self.btn_apply_preset.clicked.connect(self._apply_preset)
+        self.btn_to_custom = QPushButton(self.tr("预设→自定义微调"))
+        self.btn_to_custom.setObjectName("secondaryBtn")
+        self.btn_to_custom.clicked.connect(self._to_custom)
+        row_btns.addWidget(self.btn_apply_preset)
+        row_btns.addWidget(self.btn_to_custom)
         right_box.addLayout(row_btns)
 
         row_analyze = QHBoxLayout()
@@ -188,6 +185,14 @@ class DedupPage(QWidget):
         except Exception:
             return ""
         return str(saved) if isinstance(saved, str) else ""
+
+    def _step_texts(self) -> list[str]:
+        """步骤条文案（语言切换时重取 tr）。"""
+        return [
+            self.tr("左侧勾选素材"),
+            self.tr("「分析重复度」后选方案（轻/中/重度或自定义）"),
+            self.tr("「开始去重」提交"),
+        ]
 
     def _save_preset(self, pid: str) -> None:
         if self._config is not None:
@@ -240,6 +245,7 @@ class DedupPage(QWidget):
         act_reveal = menu.addAction(self.tr("打开所在文件夹"))
         act_copy = menu.addAction(self.tr("复制路径"))
         act_play = menu.addAction(self.tr("用系统播放器打开"))
+        act_play.setEnabled(Path(path).is_file())   # 文件已不存在则置灰
         chosen = menu.exec(self.asset_list.viewport().mapToGlobal(pos))
         if chosen is act_reveal:
             reveal_in_file_manager(path)
@@ -256,11 +262,31 @@ class DedupPage(QWidget):
             self.mark_recommended(recommended)
 
     def mark_recommended(self, preset_id: str) -> None:
-        """推荐档徽标：非推荐档标题去掉徽标字样。"""
+        """推荐档徽标：记录推荐档并刷新三张卡片标题/说明文案。"""
+        self._recommended_id = preset_id
+        self._refresh_preset_labels()
+
+    def _preset_base_names(self) -> dict[str, str]:
+        return {"light": self.tr("轻度"), "mid": self.tr("中度"),
+                "heavy": self.tr("重度")}
+
+    def _preset_descriptions(self) -> dict[str, str]:
+        return {
+            "light": self.tr("保守调整：轻度镜像/微裁切/轻调色，画质损失最小"),
+            "mid": self.tr("多手法组合：推荐日常使用，重复度下降明显"),
+            "heavy": self.tr("强力规避：全部手法叠加，适合重复度很高的素材"),
+        }
+
+    def _refresh_preset_labels(self) -> None:
+        """卡片标题（含推荐档徽标）与说明文案统一刷新（语言切换也走这里）。"""
+        names = self._preset_base_names()
+        descs = self._preset_descriptions()
         for pid, radio in self._preset_radios.items():
-            base = {"light": "轻度", "mid": "中度", "heavy": "重度"}[pid]
-            badge = "（推荐档）" if pid == preset_id else ""
-            radio.setText(base + badge)
+            badge = self.tr("（推荐档）") if pid == self._recommended_id else ""
+            radio.setText(names[pid] + badge)
+            desc = self._desc_labels.get(pid)
+            if desc is not None:
+                desc.setText(descs[pid])
 
     def current_params(self) -> list[dict[str, object]]:
         return self.editor.collect()
@@ -292,14 +318,37 @@ class DedupPage(QWidget):
         if srcs:
             self.analyze_requested.emit(srcs)
         else:
-            Toast.show_message(self, "请先在左侧勾选素材，再分析重复度")
+            Toast.show_message(
+                self, self.tr("请先在左侧勾选素材，再分析重复度"),
+            )
 
     def _emit_dedup(self) -> None:
         srcs = self.checked_paths()
         if srcs:
             self.dedup_requested.emit(srcs, self.current_params())
         else:
-            Toast.show_message(self, "请先在左侧勾选素材，再开始去重")
+            Toast.show_message(self, self.tr("请先在左侧勾选素材，再开始去重"))
+
+    def retranslate(self) -> None:
+        """语言切换：静态文案 + 卡片标题/说明 + 动态按钮重翻译。"""
+        self._step_hint.set_steps([
+            self.tr("左侧勾选素材"),
+            self.tr("「分析重复度」后选方案（轻/中/重度或自定义）"),
+            self.tr("「开始去重」提交"),
+        ])
+        self._asset_label.setText(self.tr("待去重素材"))
+        self._scheme_label.setText(self.tr("去重方案"))
+        self.btn_all.setText(self.tr("全选"))
+        self._empty.set_texts(
+            self.tr("暂无素材"),
+            self.tr("先到「采集工作台」下载素材，\n或把视频文件放入工作目录"),
+        )
+        self._refresh_preset_labels()
+        self._refresh_btns()
+        self.btn_apply_preset.setText(self.tr("套用预设"))
+        self.btn_to_custom.setText(self.tr("预设→自定义微调"))
+        self.editor.retranslate()
+        self.report_view.retranslate()
 
 
 def make_registry() -> TechniqueRegistry:

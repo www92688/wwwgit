@@ -17,6 +17,7 @@ class AssetTree(QTreeWidget):
         super().__init__(parent)
         self.setHeaderHidden(True)
         self._cascading = False           # 程序化改勾选态期间抑制递归
+        self._rows: list[Any] = []        # 最近一次数据（重翻译重建用）
         self.itemChanged.connect(self._on_item_changed)
 
     # ---- 勾选级联：父→子全选/全不选，子→父三态汇总 ----
@@ -58,14 +59,19 @@ class AssetTree(QTreeWidget):
 
     # ---- 数据 ----
     def set_assets(self, rows: list[Any]) -> None:
-        """rows: AssetRow 列表（path/category/keyword/date_str）。"""
+        """rows: AssetRow 列表（path/category/keyword/date_str）。
+
+        重建时保留原勾选（按完整路径匹配），供语言切换重翻译后恢复。
+        """
+        checked = set(self.checked_files())
+        self._rows = list(rows)
         self.blockSignals(True)
         self.clear()
         tree: dict[str, dict[str, dict[str, list[Any]]]] = {}
         for r in rows:
-            category = r.category or "未分类"
-            keyword = r.keyword or "未命名"
-            date = r.date_str or "未知日期"
+            category = r.category or self.tr("未分类")
+            keyword = r.keyword or self.tr("未命名")
+            date = r.date_str or self.tr("未知日期")
             tree.setdefault(category, {}).setdefault(keyword, {}).setdefault(
                 date, [],
             ).append(r)
@@ -90,21 +96,56 @@ class AssetTree(QTreeWidget):
                         leaf.setFlags(
                             leaf.flags() | Qt.ItemFlag.ItemIsUserCheckable,
                         )
-                        leaf.setCheckState(0, Qt.CheckState.Unchecked)
-                        tip = r.path
-                        duration = getattr(r, "duration_s", 0) or 0
-                        width = getattr(r, "width", 0) or 0
-                        height = getattr(r, "height", 0) or 0
-                        if duration:
-                            tip += f"\n时长 {duration:.0f}s"
-                            if width and height:
-                                tip += f" · {width}x{height}"
-                        leaf.setToolTip(0, tip)
+                        if str(r.path) in checked:
+                            leaf.setCheckState(0, Qt.CheckState.Checked)
+                        else:
+                            leaf.setCheckState(0, Qt.CheckState.Unchecked)
+                        leaf.setToolTip(0, self._leaf_tooltip(r))
                         kw_item.addChild(leaf)
                 cat_item.addChild(kw_item)
             self.addTopLevelItem(cat_item)
+        # 恢复勾选绕过了级联信号，这里统一把父级三态汇总正确
+        for i in range(self.topLevelItemCount()):
+            top = self.topLevelItem(i)
+            if top is not None:
+                self._recompute_parent_states(top)
         self.blockSignals(False)
         self.expandToDepth(0)
+
+    def _recompute_parent_states(self, item: QTreeWidgetItem) -> None:
+        """后序遍历：由叶子勾选态逐级汇总出父级三态（重建后校准）。"""
+        states: list[Qt.CheckState] = []
+        for j in range(item.childCount()):
+            child = item.child(j)
+            assert child is not None
+            if child.childCount():
+                self._recompute_parent_states(child)
+            states.append(child.checkState(0))
+        if not states:
+            return
+        if all(s == Qt.CheckState.Checked for s in states):
+            item.setCheckState(0, Qt.CheckState.Checked)
+        elif all(s == Qt.CheckState.Unchecked for s in states):
+            item.setCheckState(0, Qt.CheckState.Unchecked)
+        else:
+            item.setCheckState(0, Qt.CheckState.PartiallyChecked)
+
+    def retranslate(self) -> None:
+        """语言切换：用缓存的行数据重建（勾选状态经 set_assets 保留）。"""
+        if getattr(self, "_rows", None):
+            self.set_assets(self._rows)
+
+    def _leaf_tooltip(self, r: Any) -> str:
+        """叶子 Tooltip：完整路径 + 可用的时长/分辨率信息。"""
+        tip = str(r.path)
+        duration = getattr(r, "duration_s", 0) or 0
+        width = getattr(r, "width", 0) or 0
+        height = getattr(r, "height", 0) or 0
+        if duration:
+            tip += "\n" + self.tr("时长 {d}s").format(d=f"{duration:.0f}")
+            if width and height:
+                tip += f" · {width}x{height}"
+        return tip
 
     # ---- 汇总 ----
     def checked_files(self) -> list[str]:

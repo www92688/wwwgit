@@ -100,7 +100,7 @@ class HelpDialog(QDialog):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("使用说明")
+        self.setWindowTitle(self.tr("使用说明"))
         self.setMinimumSize(600, 500)
         text = QTextBrowser()
         text.setFrameShape(QTextBrowser.Shape.NoFrame)
@@ -109,29 +109,35 @@ class HelpDialog(QDialog):
             "<style>h3{color:#3b4252;margin:18px 0 4px 0;} "
             "p{color:#57606a;line-height:1.7;margin:4px 0;} "
             ".step{color:#4c6ef5;font-weight:600;}</style>"
-            "<h3>采集（输词 → 搜 → 下）</h3>"
-            "<p><span class='step'>1.</span> 顶部输入关键词（逗号分隔可批量）→ "
-            "<span class='step'>2.</span> 点击「搜索」→ "
-            "<span class='step'>3.</span> 勾选结果点击「下载选中」。"
-            "下载数量上限在列表下方设置。</p>"
-            "<h3>预处理（勾素材 → 选项 → 开始）</h3>"
-            "<p><span class='step'>1.</span> 左侧勾选素材 → "
-            "<span class='step'>2.</span> 右侧选择处理项（去水印/去字幕/裁剪/比例/去原声，"
-            "手动模式可在画布框选区域）→ "
-            "<span class='step'>3.</span> 点击「开始处理」。</p>"
-            "<h3>去重（选素材 → 选方案 → 开始）</h3>"
-            "<p><span class='step'>1.</span> 左侧勾选素材 → "
-            "<span class='step'>2.</span> 先「分析重复度」获得推荐档位，"
-            "选择轻/中/重度或自定义参数 → "
-            "<span class='step'>3.</span> 点击「开始去重」。"
-            "输出保存在 已去重/ 目录并展示前后重复度对比。</p>"
-            "<h3>失败列表</h3>"
-            "<p>失败任务可一键重新处理；网络/密钥问题请先到设置页检查。</p>"
+            "<h3>" + self.tr("采集（输词 → 搜 → 下）") + "</h3>"
+            "<p><span class='step'>1.</span> "
+            + self.tr("顶部输入关键词（逗号分隔可批量）→ ") +
+            "<span class='step'>2.</span> " + self.tr("点击「搜索」→ ") +
+            "<span class='step'>3.</span> "
+            + self.tr("勾选结果点击「下载选中」。下载数量上限在列表下方设置。")
+            + "</p>"
+            "<h3>" + self.tr("预处理（勾素材 → 选项 → 开始）") + "</h3>"
+            "<p><span class='step'>1.</span> " + self.tr("左侧勾选素材 → ") +
+            "<span class='step'>2.</span> "
+            + self.tr("右侧选择处理项（去水印/去字幕/裁剪/比例/去原声，"
+                      "手动模式可在画布框选区域）→ ") +
+            "<span class='step'>3.</span> " + self.tr("点击「开始处理」。")
+            + "</p>"
+            "<h3>" + self.tr("去重（选素材 → 选方案 → 开始）") + "</h3>"
+            "<p><span class='step'>1.</span> " + self.tr("左侧勾选素材 → ") +
+            "<span class='step'>2.</span> "
+            + self.tr("先「分析重复度」获得推荐档位，选择轻/中/重度或自定义参数 → ")
+            + "<span class='step'>3.</span> " + self.tr("点击「开始去重」。")
+            + self.tr("输出保存在 已去重/ 目录并展示前后重复度对比。")
+            + "</p>"
+            "<h3>" + self.tr("失败列表") + "</h3>"
+            "<p>" + self.tr("失败任务可一键重新处理；网络/密钥问题请先到设置页检查。")
+            + "</p>"
         )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 16, 24, 16)
         layout.addWidget(text)
-        btn_close = QPushButton("关闭")
+        btn_close = QPushButton(self.tr("关闭"))
         btn_close.setObjectName("secondaryBtn")
         btn_close.clicked.connect(self.accept)
         row = QHBoxLayout()
@@ -211,6 +217,7 @@ class MainWindow(QMainWindow):
     def __init__(self, ctx: Any, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._ctx = ctx
+        self._pages: list[QWidget] = []
         self.setWindowTitle(self.tr("源重构 — 素材采集与智能去重"))
         self.resize(1280, 800)
         self.setMinimumSize(1000, 660)
@@ -239,12 +246,12 @@ class MainWindow(QMainWindow):
         mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_col = QVBoxLayout()
         title_col.setSpacing(0)
-        t = QLabel(self.tr("源重构"))
-        t.setObjectName("sideTitle")
-        sub = QLabel(self.tr("采集 · 预处理 · 去重"))
-        sub.setObjectName("sideSub")
-        title_col.addWidget(t)
-        title_col.addWidget(sub)
+        self._title_label = QLabel(self.tr("源重构"))
+        self._title_label.setObjectName("sideTitle")
+        self._sub_label = QLabel(self.tr("采集 · 预处理 · 去重"))
+        self._sub_label.setObjectName("sideSub")
+        title_col.addWidget(self._title_label)
+        title_col.addWidget(self._sub_label)
         head_row.addWidget(mark)
         head_row.addLayout(title_col, 1)
         nav_layout.addWidget(head)
@@ -256,14 +263,14 @@ class MainWindow(QMainWindow):
             it = QListWidgetItem(self.tr(item))
             it.setIcon(_nav_icon(key))
             self.nav_list.addItem(it)
-        btn_help = QPushButton(self.tr("使用说明"))
-        btn_help.setObjectName("secondaryBtn")
-        btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_help.clicked.connect(self._show_help)
+        self._btn_help = QPushButton(self.tr("使用说明"))
+        self._btn_help.setObjectName("secondaryBtn")
+        self._btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_help.clicked.connect(self._show_help)
 
 
         nav_layout.addWidget(self.nav_list, 1)
-        nav_layout.addWidget(btn_help)
+        nav_layout.addWidget(self._btn_help)
         ver = QLabel(f"v{__version__}")
         ver.setObjectName("sideVersion")
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -319,6 +326,27 @@ class MainWindow(QMainWindow):
     # ---- 页面装配 ----
     def add_page(self, widget: QWidget) -> None:
         self.stack.addWidget(widget)
+        self._pages.append(widget)
+
+    def retranslate(self) -> None:
+        """语言切换：导航/标题/状态栏与所有页面级联重翻译。
+
+        由 app 装配接到 I18nService.locale_changed；各页面实现自己的
+        retranslate()（无该方法的页面自动跳过）。
+        """
+        self.setWindowTitle(self.tr("源重构 — 素材采集与智能去重"))
+        for i, (item, _key) in enumerate(_NAV_KEYS):
+            nav_it = self.nav_list.item(i)
+            if nav_it is not None:
+                nav_it.setText(self.tr(item))
+        self._title_label.setText(self.tr("源重构"))
+        self._sub_label.setText(self.tr("采集 · 预处理 · 去重"))
+        self._btn_help.setText(self.tr("使用说明"))
+        self._task_status._render()
+        for page in self._pages:
+            ret = getattr(page, "retranslate", None)
+            if callable(ret):
+                ret()
 
     def _on_nav_changed(self, index: int) -> None:
         if 0 <= index < self.stack.count():
@@ -332,14 +360,14 @@ class MainWindow(QMainWindow):
             return True
         while True:
             QMessageBox.information(
-                self, "初始设置",
-                "开始使用前，请先选择素材保存的工作目录。\n"
-                "建议选择空间充足的磁盘分区。",
+                self, self.tr("初始设置"),
+                self.tr("开始使用前，请先选择素材保存的工作目录。\n"
+                        "建议选择空间充足的磁盘分区。"),
             )
             from PySide6.QtWidgets import QFileDialog
 
             chosen = QFileDialog.getExistingDirectory(
-                self, "选择素材工作目录", "",
+                self, self.tr("选择素材工作目录"), "",
             )
             if not chosen:
                 return False
@@ -349,8 +377,8 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 logger.warning("工作目录无效：%s", exc)
                 QMessageBox.warning(
-                    self, "目录不可用",
-                    f"该目录无法作为工作目录：\n{exc}",
+                    self, self.tr("目录不可用"),
+                    self.tr("该目录无法作为工作目录：\n{err}").format(err=exc),
                 )
 
     def _show_help(self) -> None:

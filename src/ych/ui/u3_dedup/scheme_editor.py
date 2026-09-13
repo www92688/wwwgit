@@ -21,12 +21,20 @@ class SchemeEditor(QGroupBox):
 
     def __init__(self, registry: TechniqueRegistry,
                  parent: QWidget | None = None) -> None:
-        super().__init__("方案参数", parent)
+        super().__init__(self.tr("方案参数"), parent)
         self._registry = registry
         self._items: list[dict[str, object]] = []
         self._widgets: dict[str, dict[str, QWidget]] = {}
         self.setLayout(QVBoxLayout(self))
         self.set_items([])
+
+    def retranslate(self) -> None:
+        """语言切换：分组标题与手法名/参数标签重翻译（整表重建）。
+
+        用 collect() 回读当前编辑值再重建——否则用户已调的参数会被重置。
+        """
+        self.setTitle(self.tr("方案参数"))
+        self.set_items(self.collect())
 
     # ---- 渲染 ----
     def set_items(self, items: list[dict[str, object]]) -> None:
@@ -51,14 +59,15 @@ class SchemeEditor(QGroupBox):
             technique = self._registry.get(tid)
             if technique is None:
                 continue
-            form.addRow(QLabel(f"▸ {technique.display_name_zh}"))
+            # 手法名/参数标签存于核心注册表（中文），经 tr() 查语言包翻译
+            form.addRow(QLabel(f"▸ {self.tr(technique.display_name_zh)}"))
             editors: dict[str, QWidget] = {}
             for field_def in technique.param_schema:
                 editor = self._editor_for(
                     field_def,
                     params.get(field_def.key) if isinstance(params, dict) else None,
                 )
-                form.addRow(field_def.label_zh, editor)
+                form.addRow(self.tr(field_def.label_zh), editor)
                 editors[field_def.key] = editor
             self._widgets[tid] = editors
         layout.addWidget(form_box)

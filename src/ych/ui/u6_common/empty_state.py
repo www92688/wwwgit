@@ -16,19 +16,24 @@ class EmptyState(QWidget):
     def __init__(self, text: str = "暂无数据", hint: str = "",
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        title = QLabel(text)
-        title.setObjectName("emptyTitle")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint_label = QLabel(hint)
-        hint_label.setObjectName("emptyHint")
-        hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._title = QLabel(text)
+        self._title.setObjectName("emptyTitle")
+        self._title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._hint = QLabel(hint)
+        self._hint.setObjectName("emptyHint")
+        self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.addStretch(1)
-        layout.addWidget(title)
-        layout.addWidget(hint_label)
+        layout.addWidget(self._title)
+        layout.addWidget(self._hint)
         layout.addStretch(1)
+
+    def set_texts(self, title: str, hint: str = "") -> None:
+        """更新占位文案（语言切换重翻译时调用）。"""
+        self._title.setText(title)
+        self._hint.setText(hint)
 
 
 class _ResizeFilter(QObject):

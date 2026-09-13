@@ -20,7 +20,16 @@ class _CanvasLabel(QLabel):
         self.setStyleSheet("background:#20242b; color:#8a8f98;")
         self._origin = None
         self._current: QRect | None = None
-        self.setText("加载素材帧后在此框选区域\n（左键拖拽，可多次框选）")
+        self.setText(self.tr("加载素材帧后在此框选区域\n（左键拖拽，可多次框选）"))
+
+    def retranslate(self) -> None:
+        """语言切换：未加载帧时刷新占位提示（已加载帧则不动画面）。
+
+        注意 PySide6 ≥6.7 的 pixmap() 无图时返回 null QPixmap 而非 None。
+        """
+        pm = self.pixmap()
+        if pm is None or pm.isNull():
+            self.setText(self.tr("加载素材帧后在此框选区域\n（左键拖拽，可多次框选）"))
 
     def mousePressEvent(self, ev) -> None:   # type: ignore[no-untyped-def]
         if ev.button() == Qt.MouseButton.LeftButton and self.pixmap():
@@ -118,6 +127,9 @@ class BoxSelectCanvas(QWidget):
 
     def regions(self) -> list[BBox]:
         return list(self._boxes)
+
+    def retranslate(self) -> None:
+        self._label.retranslate()
 
     def clear_regions(self) -> None:
         self._boxes.clear()

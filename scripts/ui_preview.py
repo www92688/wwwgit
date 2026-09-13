@@ -12,6 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from ych.common.schemas import VideoMeta  # noqa: E402
@@ -84,7 +85,8 @@ def main() -> int:
         _asset(2, "清洗类", "地毯", "2026-09-01"),
         _asset(3, "修理工", "水管", "2026-09-02"),
     ])
-    preprocess.asset_tree.topLevelItem(0).child(0).setCheckState(0, __import__("PySide6.QtCore", fromlist=["Qt"]).Qt.CheckState.Checked)
+    preprocess.asset_tree.topLevelItem(0).child(0).setCheckState(
+        0, Qt.CheckState.Checked)
 
     # 去重页：样例素材 + 报告
     dedup = DedupPage()
