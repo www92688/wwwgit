@@ -15,7 +15,7 @@ logger_name = "ych.s3"
 
 T = TypeVar("T")
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 
 def default_db_path() -> Path:
@@ -56,10 +56,12 @@ class Database:
                     Path(self._path).parent.mkdir(parents=True, exist_ok=True)
                 conn = sqlite3.connect(self._path, check_same_thread=False)
                 conn.row_factory = sqlite3.Row
+                # busy_timeout 必须先于 journal_mode：并发首连时 WAL 切换
+                # 可能撞上其他连接的写锁（无超时即直接 DB001）
+                conn.execute("PRAGMA busy_timeout=5000")
                 if self._path != ":memory:":
                     conn.execute("PRAGMA journal_mode=WAL")
                 conn.execute("PRAGMA foreign_keys=ON")
-                conn.execute("PRAGMA busy_timeout=5000")
             except sqlite3.Error as exc:
                 raise AppError(ERR_DB_OPEN_FAILED, "数据库打开失败", cause=exc) from exc
             self._local.conn = conn

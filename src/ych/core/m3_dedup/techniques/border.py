@@ -14,7 +14,8 @@ from ych.core.m3_dedup.techniques.base import (
 )
 
 # 颜色白名单：具名色 + 0xRRGGBB/#RRGGBB（防任意串注入滤镜图）
-_COLOR_RE = re.compile(r"^(?:0x|#)?[0-9a-fA-F]{6}$")
+# 注意：六位 hex 用捕获组提取——lstrip 会把 "000000" 整串剥空
+_COLOR_RE = re.compile(r"^(?:0x|#)?([0-9a-fA-F]{6})$")
 _NAMED_COLORS = frozenset({
     "black", "white", "gray", "grey", "red", "green", "blue",
     "yellow", "orange", "purple", "brown", "navy", "silver",
@@ -25,8 +26,9 @@ def _safe_color(raw: object) -> str:
     color = str(raw).strip().lower()
     if color in _NAMED_COLORS:
         return color
-    if _COLOR_RE.match(color):
-        return f"0x{color.lstrip('0x#')}"
+    m = _COLOR_RE.match(color)
+    if m:
+        return f"0x{m.group(1)}"
     return "black"
 
 

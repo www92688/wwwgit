@@ -36,6 +36,7 @@ class DownloadTaskRow:
     error_code: str | None
     created_at: str
     updated_at: str
+    retry_count: int = 0     # v2 迁移新增列（跨重启重试预算不重置）
 
 
 @dataclass(frozen=True)
@@ -241,6 +242,30 @@ class DownloadTaskDao:
 
         self._db.write(_w)
 
+    def increment_retry(self, task_id: int) -> None:
+        """重试预算落库：跨重启后重试计数不重置。"""
+        def _w(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "UPDATE download_task SET retry_count=retry_count+1 WHERE id=?",
+                (task_id,),
+            )
+
+        self._db.write(_w)
+
+    def stale_terminal_resume_parts(self, max_age_days: float) -> list[str]:
+        """失败/取消终态行中超龄断点文件的 temp_path（保留期已过可清理）。
+
+        .part 删除后 find_resumable 复用该行时 temp 缺失 → download_stream
+        自动从头下载，无数据损失；仅用于给 .downloading/ 兜底瘦身。
+        """
+        rows = self._db.query(
+            "SELECT resume_state FROM download_task"
+            " WHERE resume_state IS NOT NULL AND status IN ('failed','canceled')"
+            " AND updated_at < datetime('now','localtime', ?)",
+            (f"-{float(max_age_days):g} days",),
+        )
+        return self._extract_temp_paths(rows)
+
     def resume_temp_paths(self) -> list[str]:
         """非终态行 resume_state 里的 temp_path（.downloading 孤儿清理的保留集）。
 
@@ -251,6 +276,10 @@ class DownloadTaskDao:
             "SELECT resume_state FROM download_task"
             " WHERE resume_state IS NOT NULL AND status != 'success'",
         )
+        return self._extract_temp_paths(rows)
+
+    @staticmethod
+    def _extract_temp_paths(rows: list[Row]) -> list[str]:
         out: list[str] = []
         for r in rows:
             try:

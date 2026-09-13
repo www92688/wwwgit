@@ -42,20 +42,20 @@
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="92" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="473" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="474" />
         <source>历史搜索词</source>
         <translation type="finished">历史搜索词</translation>
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="98" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="475" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="476" />
         <source>输入关键词，多个用逗号分隔</source>
         <translation type="finished">输入关键词，多个用逗号分隔</translation>
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="101" />
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="275" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="480" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="481" />
         <source>搜索</source>
         <translation type="finished">搜索</translation>
     </message>
@@ -66,25 +66,25 @@
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="325" />
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="331" />
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="365" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="481" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="482" />
         <source>AI 扩展</source>
         <translation type="finished">AI 扩展</translation>
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="105" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="483" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="484" />
         <source>用 AI 围绕第一个关键词扩展搜索词（需在设置页配置 AI 服务）</source>
         <translation type="finished">用 AI 围绕第一个关键词扩展搜索词（需在设置页配置 AI 服务）</translation>
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="108" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="477" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="478" />
         <source>关键词</source>
         <translation type="finished">关键词</translation>
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="130" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="478" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="479" />
         <source>单次下载数量上限</source>
         <translation type="finished">单次下载数量上限</translation>
     </message>
@@ -92,37 +92,37 @@
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="144" />
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="457" />
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="464" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="485" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="486" />
         <source>查看文件</source>
         <translation type="finished">查看文件</translation>
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="147" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="487" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="488" />
         <source>打开下载文件的保存位置（工作目录）</source>
         <translation type="finished">打开下载文件的保存位置（工作目录）</translation>
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="164" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="489" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="490" />
         <source>采集平台</source>
         <translation type="finished">采集平台</translation>
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="171" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="490" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="491" />
         <source>国内平台（暂未开放，框架占位）</source>
         <translation type="finished">国内平台（暂未开放，框架占位）</translation>
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="185" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="491" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="492" />
         <source>国外平台（TikTok / YouTube）</source>
         <translation type="finished">国外平台（TikTok / YouTube）</translation>
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="187" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="493" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="494" />
         <source>开启前会自动检测外网可达性；TikTok/YouTube 目前为占位未开放</source>
         <translation type="finished">开启前会自动检测外网可达性；TikTok/YouTube 目前为占位未开放</translation>
     </message>
@@ -133,7 +133,7 @@
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="210" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="497" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="498" />
         <source>免费素材站可直连，不受国外总开关约束；需在设置页配置对应 Key</source>
         <translation type="finished">免费素材站可直连，不受国外总开关约束；需在设置页配置对应 Key</translation>
     </message>
@@ -164,7 +164,7 @@
     </message>
     <message>
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="274" />
-        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="479" />
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="480" />
         <source>搜索中…</source>
         <translation type="finished">搜索中…</translation>
     </message>
@@ -232,6 +232,11 @@
         <location filename="../src/ych/ui/u1_capture/capture_page.py" line="465" />
         <source>保存位置不存在：</source>
         <translation type="finished">保存位置不存在：</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u1_capture/capture_page.py" line="469" />
+        <source>打开文件管理器失败</source>
+        <translation type="finished">打开文件管理器失败</translation>
     </message>
 </context>
 <context>
@@ -1384,239 +1389,250 @@
 <context>
     <name>SettingsPage</name>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="136" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="973" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="138" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1004" />
         <source>通用</source>
         <translation type="finished">通用</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="153" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="155" />
         <source>跟随系统</source>
         <translation type="finished">跟随系统</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="154" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="156" />
         <source>浅色</source>
         <translation type="finished">浅色</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="155" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="157" />
         <source>深色</source>
         <translation type="finished">深色</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="165" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="998" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="167" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1029" />
         <source>选择…</source>
         <translation type="finished">选择…</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="170" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="172" />
         <source>界面语言</source>
         <translation type="finished">界面语言</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="171" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="173" />
         <source>界面主题</source>
         <translation type="finished">界面主题</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="173" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="175" />
         <source>工作目录</source>
         <translation type="finished">工作目录</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="177" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="974" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="179" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1005" />
         <source>网络</source>
         <translation type="finished">网络</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="180" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="999" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="182" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1030" />
         <source>启用代理</source>
         <translation type="finished">启用代理</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="186" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1000" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="188" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1031" />
         <source>自动检测</source>
         <translation type="finished">自动检测</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="189" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1002" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="191" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1033" />
         <source>自动探测系统代理与常见本地端口（Clash/v2rayN 等），验证可通外网后自动填入并启用</source>
         <translation type="finished">自动探测系统代理与常见本地端口（Clash/v2rayN 等），验证可通外网后自动填入并启用</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="194" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="875" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1010" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="196" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="906" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1041" />
         <source>网络检测</source>
         <translation type="finished">网络检测</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="199" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="201" />
         <source>代理地址</source>
         <translation type="finished">代理地址</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="201" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1006" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="203" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1037" />
         <source>填写本地 HTTP 代理，格式 IP:端口（Clash 默认 127.0.0.1:7890，v2rayN 默认 10809）。VPN 的订阅链接不是代理地址。若 VPN 使用 TUN/系统代理模式，无需启用本项。</source>
         <translation type="finished">填写本地 HTTP 代理，格式 IP:端口（Clash 默认 127.0.0.1:7890，v2rayN 默认 10809）。VPN 的订阅链接不是代理地址。若 VPN 使用 TUN/系统代理模式，无需启用本项。</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="216" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="975" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="218" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1006" />
         <source>服务（素材站与 AI）</source>
         <translation type="finished">服务（素材站与 AI）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="228" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="976" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="230" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1007" />
         <source>AI 模型（去水印 / 去字幕 / 重复度）</source>
         <translation type="finished">AI 模型（去水印 / 去字幕 / 重复度）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="233" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1014" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="235" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1045" />
         <source>模型文件</source>
         <translation type="finished">模型文件</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="233" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1014" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="235" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1045" />
         <source>用途</source>
         <translation type="finished">用途</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="233" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1014" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="235" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1045" />
         <source>状态</source>
         <translation type="finished">状态</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="234" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1015" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="236" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1046" />
         <source>操作</source>
         <translation type="finished">操作</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="247" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1012" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="249" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1043" />
         <source>打开模型目录</source>
         <translation type="finished">打开模型目录</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="265" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="977" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="268" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1008" />
         <source>高级</source>
         <translation type="finished">高级</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="271" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1011" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="274" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1042" />
         <source>原始素材只读保护</source>
         <translation type="finished">原始素材只读保护</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="273" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="276" />
         <source>下载并行数</source>
         <translation type="finished">下载并行数</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="274" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="277" />
         <source>处理并行数</source>
         <translation type="finished">处理并行数</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="275" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="278" />
         <source>失败重试次数</source>
         <translation type="finished">失败重试次数</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="328" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="331" />
         <source>✓ 已就绪（{mb} MB）</source>
         <translation type="finished">✓ 已就绪（{mb} MB）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="333" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="336" />
         <source>下载中 {pct}%</source>
         <translation type="finished">下载中 {pct}%</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="336" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="339" />
         <source>缺失（无自动下载源，可手动放置文件）</source>
         <translation type="finished">缺失（无自动下载源，可手动放置文件）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="339" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="342" />
         <source>未下载</source>
         <translation type="finished">未下载</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="345" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="348" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="361" />
         <source>下载</source>
         <translation type="finished">下载</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="366" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="358" />
+        <source>取消</source>
+        <translation type="finished">取消</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="368" />
+        <source>已请求取消，将保留已下载断点…</source>
+        <translation type="finished">已请求取消，将保留已下载断点…</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="382" />
         <source>开始下载，走「网络」分组里配置的代理（若有）…</source>
         <translation type="finished">开始下载，走「网络」分组里配置的代理（若有）…</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="387" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="404" />
         <source>{name} 下载完成并通过契约校验，即刻可用（无需重启）。</source>
         <translation type="finished">{name} 下载完成并通过契约校验，即刻可用（无需重启）。</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="396" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="414" />
         <source>{key} 下载失败：{msg}（可检查网络/代理后重试）</source>
         <translation type="finished">{key} 下载失败：{msg}（可检查网络/代理后重试）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="420" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1019" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="438" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1050" />
         <source>添加 AI 服务</source>
         <translation type="finished">添加 AI 服务</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="422" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1020" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="440" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1051" />
         <source>编辑</source>
         <translation type="finished">编辑</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="425" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1021" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="443" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1052" />
         <source>设为默认</source>
         <translation type="finished">设为默认</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="428" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="446" />
         <source>将选中的 AI 服务设为默认（素材站无默认概念）</source>
         <translation type="finished">将选中的 AI 服务设为默认（素材站无默认概念）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="431" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1022" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="449" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1053" />
         <source>删除</source>
         <translation type="finished">删除</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="434" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="452" />
         <source>删除选中的 AI 服务（素材站为内置项不可删除，如需停用可在编辑页清空其 Key）</source>
         <translation type="finished">删除选中的 AI 服务（素材站为内置项不可删除，如需停用可在编辑页清空其 Key）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="466" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="484" />
         <source>素材站（填官方 Key 即启用）</source>
         <translation type="finished">素材站（填官方 Key 即启用）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="471" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="489" />
         <source>素材站由应用内置接口适配（目前 Pexels / Pixabay）。
 各素材站接口互不相同，新站点需要专门编写适配插件，
 无法像 AI 服务那样仅凭「网址 + Key」添加。</source>
@@ -1625,34 +1641,41 @@
 无法像 AI 服务那样仅凭「网址 + Key」添加。</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="479" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="497" />
         <source>已配置</source>
         <translation type="finished">已配置</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="479" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="497" />
         <source>未配置</source>
         <translation type="finished">未配置</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="486" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="504" />
         <source>AI 服务（关键词扩展等）</source>
         <translation type="finished">AI 服务（关键词扩展等）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="492" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="510" />
         <source>未命名</source>
         <translation type="finished">未命名</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="493" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="511" />
         <source>未选模型</source>
         <translation type="finished">未选模型</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="494" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="512" />
         <source>★默认　</source>
         <translation type="finished">★默认　</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="879" />
+        <source>该目录无法作为工作目录：
+{err}</source>
+        <translation type="finished">该目录无法作为工作目录：
+{err}</translation>
     </message>
     <message>
         <source>已配置（留空并保存=清除）</source>
@@ -1667,170 +1690,179 @@
         <translation type="finished">已配置（留空=不修改）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="596" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="614" />
         <source>删除服务</source>
         <translation type="finished">删除服务</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="597" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="615" />
         <source>确定删除该 AI 服务？其密钥将一并从凭据管理器清除。</source>
         <translation type="finished">确定删除该 AI 服务？其密钥将一并从凭据管理器清除。</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="616" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="792" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1029" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1030" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="634" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="810" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1060" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1061" />
         <source>← 返回</source>
         <translation type="finished">← 返回</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="631" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1034" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="649" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1065" />
         <source>预设供应商</source>
         <translation type="finished">预设供应商</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="655" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1042" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="673" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1073" />
         <source>如：我的中转站 / OpenRouter</source>
         <translation type="finished">如：我的中转站 / OpenRouter</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="658" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1044" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="676" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1075" />
         <source>https://api.example.com（/v1、/v3、/v4 等版本后缀按原样使用）</source>
         <translation type="finished">https://api.example.com（/v1、/v3、/v4 等版本后缀按原样使用）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="663" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="681" />
         <source>名称</source>
         <translation type="finished">名称</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="664" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="682" />
         <source>接口地址</source>
         <translation type="finished">接口地址</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="672" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1047" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="690" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1078" />
         <source>点「拉取模型」或直接填写模型名</source>
         <translation type="finished">点「拉取模型」或直接填写模型名</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="674" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="762" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="778" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1033" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="692" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="780" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="796" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1064" />
         <source>拉取模型</source>
         <translation type="finished">拉取模型</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="679" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1028" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="697" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1059" />
         <source>模型</source>
         <translation type="finished">模型</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="684" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="816" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1031" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1032" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="702" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="834" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1062" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1063" />
         <source>保存</source>
         <translation type="finished">保存</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="709" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="728" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="838" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="727" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="746" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="856" />
         <source>无法保存</source>
         <translation type="finished">无法保存</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="709" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="727" />
         <source>请填写接口地址</source>
         <translation type="finished">请填写接口地址</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="729" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="747" />
         <source>API Key 写入系统凭据库失败：{msg}</source>
         <translation type="finished">API Key 写入系统凭据库失败：{msg}</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="742" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="745" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="760" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="763" />
         <source>无法拉取</source>
         <translation type="finished">无法拉取</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="742" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="760" />
         <source>请先填写接口地址</source>
         <translation type="finished">请先填写接口地址</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="745" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="763" />
         <source>AI 服务能力未装配</source>
         <translation type="finished">AI 服务能力未装配</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="749" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="767" />
         <source>拉取中…</source>
         <translation type="finished">拉取中…</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="771" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="789" />
         <source>未获取到模型</source>
         <translation type="finished">未获取到模型</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="772" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="790" />
         <source>服务未返回模型列表：可检查地址与 Key，或直接在模型框手动填写模型名。</source>
         <translation type="finished">服务未返回模型列表：可检查地址与 Key，或直接在模型框手动填写模型名。</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="779" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="797" />
         <source>拉取失败</source>
         <translation type="finished">拉取失败</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="811" />
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1039" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="829" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="1070" />
         <source>密钥存储在系统凭据管理器，不上传、不入库。</source>
         <translation type="finished">密钥存储在系统凭据管理器，不上传、不入库。</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="839" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="857" />
         <source>Key 写入系统凭据库失败：{msg}</source>
         <translation type="finished">Key 写入系统凭据库失败：{msg}</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="848" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="866" />
         <source>选择素材工作目录</source>
         <translation type="finished">选择素材工作目录</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="875" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="878" />
+        <source>目录不可用</source>
+        <translation type="finished">目录不可用</translation>
+    </message>
+    <message>
+        <source>该目录无法作为工作目录：</source>
+        <translation type="finished">该目录无法作为工作目录：</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="906" />
         <source>网络能力未装配，无法检测。</source>
         <translation type="finished">网络能力未装配，无法检测。</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="885" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="916" />
         <source>检测中：正在探测系统代理与常见端口…</source>
         <translation type="finished">检测中：正在探测系统代理与常见端口…</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="898" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="929" />
         <source>未检测到可用代理：系统代理未开启，常见端口也无响应。若你的 VPN 支持 TUN/系统代理模式，无需启用本项即可直接使用。</source>
         <translation type="finished">未检测到可用代理：系统代理未开启，常见端口也无响应。若你的 VPN 支持 TUN/系统代理模式，无需启用本项即可直接使用。</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="910" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="941" />
         <source>✓ 已自动配置并启用：{host}:{port}（已验证可访问外网）</source>
         <translation type="finished">✓ 已自动配置并启用：{host}:{port}（已验证可访问外网）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="916" />
+        <location filename="../src/ych/ui/u5_settings/settings_page.py" line="947" />
         <source>检测失败：{msg}</source>
         <translation type="finished">检测失败：{msg}</translation>
     </message>
@@ -1895,67 +1927,67 @@
 <context>
     <name>_Bridge</name>
     <message>
-        <location filename="../src/ych/app.py" line="241" />
+        <location filename="../src/ych/app.py" line="242" />
         <source>预处理</source>
         <translation type="finished">预处理</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="242" />
+        <location filename="../src/ych/app.py" line="243" />
         <source>去重</source>
         <translation type="finished">去重</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="243" />
+        <location filename="../src/ych/app.py" line="244" />
         <source>重复度分析</source>
         <translation type="finished">重复度分析</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="257" />
+        <location filename="../src/ych/app.py" line="258" />
         <source>，{word} {count} 条</source>
         <translation type="finished">，{word} {count} 条</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="258" />
+        <location filename="../src/ych/app.py" line="259" />
         <source>失败</source>
         <translation type="finished">失败</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="259" />
+        <location filename="../src/ych/app.py" line="260" />
         <source>跳过</source>
         <translation type="finished">跳过</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="264" />
+        <location filename="../src/ych/app.py" line="265" />
         <source>预处理完成：成功 {n} 条{extra}；输出与原文件同目录（_cleaned 后缀）</source>
         <translation type="finished">预处理完成：成功 {n} 条{extra}；输出与原文件同目录（_cleaned 后缀）</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="270" />
+        <location filename="../src/ych/app.py" line="271" />
         <source>；重复度 {a}% → {b}%</source>
         <translation type="finished">；重复度 {a}% → {b}%</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="274" />
+        <location filename="../src/ych/app.py" line="275" />
         <source>去重完成：成功 {n} 条{extra}{tail}；输出在 已去重/ 目录</source>
         <translation type="finished">去重完成：成功 {n} 条{extra}{tail}；输出在 已去重/ 目录</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="283" />
+        <location filename="../src/ych/app.py" line="284" />
         <source>重复度分析完成{extra}，已按结果标注推荐档位</source>
         <translation type="finished">重复度分析完成{extra}，已按结果标注推荐档位</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="286" />
+        <location filename="../src/ych/app.py" line="287" />
         <source>。可到 设置 → AI 模型 下载所需模型</source>
         <translation type="finished">。可到 设置 → AI 模型 下载所需模型</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="288" />
+        <location filename="../src/ych/app.py" line="289" />
         <source>{label}失败：{msg}{extra}</source>
         <translation type="finished">{label}失败：{msg}{extra}</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="292" />
+        <location filename="../src/ych/app.py" line="293" />
         <source>{label}任务已取消</source>
         <translation type="finished">{label}任务已取消</translation>
     </message>

@@ -123,6 +123,7 @@ def main() -> int:
         ai_gateway=cast(Any, ctx.ai_gateway()),
         http=ctx.http(),
         model_downloader=cast(Any, ctx.model_downloader()),
+        workdirs=cast(Any, ctx.workdirs()),
     )
 
     for page in (capture, preprocess, dedup, failures, settings):

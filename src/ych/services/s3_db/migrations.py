@@ -108,5 +108,9 @@ CREATE TABLE IF NOT EXISTS keyword_category (
 """
 
 # 迁移脚本序列：后续版本追加，永不修改历史脚本
-MIGRATIONS: list[tuple[int, str]] = [(1, DDL_V1)]
+MIGRATIONS_V2 = """
+ALTER TABLE download_task ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;
+"""
+
+MIGRATIONS: list[tuple[int, str]] = [(1, DDL_V1), (2, MIGRATIONS_V2)]
 

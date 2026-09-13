@@ -15,6 +15,8 @@ logger = logging.getLogger("ych.m4")
 
 # 孤儿 .part 判定门槛：mtime 距今超过该值才删（防并发实例等极端竞态）
 _ORPHAN_MIN_AGE_S = 3600.0
+# 失败/取消终态行断点保留期（天）：超期 .part 删除，续传自动从头下载
+_STALE_PART_DAYS = 7.0
 
 
 @dataclass
@@ -138,19 +140,31 @@ class CrashRecovery:
             os.path.normcase(os.path.abspath(p))
             for p in self._daos.downloads.resume_temp_paths()
         }
+        # 失败/取消行超龄断点：保留期已过，从保留集中移出 → 兜底删除
+        # （find_resumable 复用该行时 temp 缺失会自动从头下载，无数据损失）
+        stale_referenced = {
+            os.path.normcase(os.path.abspath(p))
+            for p in self._daos.downloads.stale_terminal_resume_parts(
+                _STALE_PART_DAYS,
+            )
+        }
+        referenced -= stale_referenced
         now = time.time()
         removed = 0
         for f in part_dir.iterdir():
             if not f.is_file() or f.suffix != ".part":
                 continue
-            if os.path.normcase(os.path.abspath(str(f))) in referenced:
+            key = os.path.normcase(os.path.abspath(str(f)))
+            if key in referenced:
                 continue
-            if now - f.stat().st_mtime < _ORPHAN_MIN_AGE_S:
+            if key not in stale_referenced and (
+                now - f.stat().st_mtime < _ORPHAN_MIN_AGE_S
+            ):
                 continue
             SafeFileOps.safe_delete(f)
             removed += 1
         if removed:
-            logger.info(".downloading 清理孤儿 .part %d 个", removed)
+            logger.info(".downloading 清理孤儿/超龄 .part %d 个", removed)
         return removed
 
     @staticmethod

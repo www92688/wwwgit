@@ -38,14 +38,15 @@ EXPECTED_TABLES = {
 }
 
 
-def test_migration_v1_creates_nine_tables_and_version(db) -> None:
+def test_migration_creates_nine_tables_and_version(db) -> None:
     tables = {
         r[0] for r in db.query(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         )
     }
     assert tables == EXPECTED_TABLES
-    assert db.query("PRAGMA user_version")[0][0] == 1
+    # v2：download_task 增加 retry_count（跨重启重试预算不重置）
+    assert db.query("PRAGMA user_version")[0][0] == db.SCHEMA_VERSION == 2
 
 
 def test_status_check_is_seven_state(db) -> None:

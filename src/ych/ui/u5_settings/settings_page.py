@@ -6,7 +6,7 @@ import contextlib
 import logging
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl
 from PySide6.QtGui import QBrush, QColor, QDesktopServices
@@ -111,6 +111,7 @@ class SettingsPage(QWidget):
         ai_gateway: _AiGatewayLike | None = None,
         http: HttpClient | None = None,
         model_downloader: _ModelDownloaderLike | None = None,
+        workdirs: Any | None = None,           # WorkDirManager（改目录即时生效）
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -120,6 +121,7 @@ class SettingsPage(QWidget):
         self._ai_gateway = ai_gateway
         self._http = http
         self._model_downloader = model_downloader
+        self._workdirs = workdirs
         self._ai_workers: list[LlmWorker] = []
         self._editing_ai_id: str | None = None     # None=新增，否则为编辑
         self._editing_stock_pid: str = "pexels"
@@ -256,6 +258,7 @@ class SettingsPage(QWidget):
         self._worker_keys: dict[QObject, str] = {}
         self._model_dl_cells: dict[str, QPushButton] = {}
         self._model_workers: list[LlmWorker] = []
+        self._model_token: Any | None = None
         self._model_timer = QTimer(self)
         self._model_timer.setInterval(400)
         self._model_timer.timeout.connect(self._refresh_model_rows)
@@ -346,13 +349,25 @@ class SettingsPage(QWidget):
                 btn.setObjectName("secondaryBtn")
                 btn.clicked.connect(
                     lambda _checked=False, k=str(spec.key):
-                        self._download_model(k),
+                        self._on_model_button(k),
                 )
                 self.model_table.setCellWidget(row, 3, btn)
                 self._model_dl_cells[str(spec.key)] = btn
-            self._model_dl_cells[str(spec.key)].setEnabled(
-                bool(spec.urls) and self._downloading_key is None,
-            )
+            btn = self._model_dl_cells[str(spec.key)]
+            if self._downloading_key == str(spec.key):
+                btn.setText(self.tr("取消"))
+                btn.setEnabled(True)
+            else:
+                btn.setText(self.tr("下载"))
+                btn.setEnabled(bool(spec.urls) and self._downloading_key is None)
+
+    def _on_model_button(self, key: str) -> None:
+        """下载中点同一行 = 取消（保留断点）；其余情况发起下载。"""
+        if self._downloading_key == key and self._model_token is not None:
+            self._model_token.cancel()
+            self.model_hint.setText(self.tr("已请求取消，将保留已下载断点…"))
+            return
+        self._download_model(key)
 
     def _download_model(self, key: str) -> None:
         dl = self._model_downloader
@@ -361,6 +376,7 @@ class SettingsPage(QWidget):
         from ych.common.cancellation import CancellationToken
 
         token = CancellationToken()
+        self._model_token = token
         self._downloading_key = key
         self.model_hint.setText(
             self.tr("开始下载，走「网络」分组里配置的代理（若有）…"),
@@ -379,6 +395,7 @@ class SettingsPage(QWidget):
         dl = self._model_downloader
         key = self._worker_keys.pop(self.sender(), self._downloading_key or "")
         self._downloading_key = None
+        self._model_token = None
         self._model_timer.stop()
         self._refresh_model_rows()
         if dl is not None:
@@ -390,6 +407,7 @@ class SettingsPage(QWidget):
     def _on_model_failed(self, msg: str) -> None:
         key = self._worker_keys.pop(self.sender(), self._downloading_key or "?")
         self._downloading_key = None
+        self._model_token = None
         self._model_timer.stop()
         self._refresh_model_rows()
         self.model_hint.setText(
@@ -847,10 +865,23 @@ class SettingsPage(QWidget):
         chosen = QFileDialog.getExistingDirectory(
             self, self.tr("选择素材工作目录"),
         )
-        if chosen:
-            path = Path(chosen)
-            self.workdir_edit.setText(str(path))
+        if not chosen:
+            return
+        path = Path(chosen)
+        if self._workdirs is not None:
+            # 走 WorkDirManager：校验 + 立即生效 + workdir_changed 触发
+            # 素材列表刷新与增量扫描（此前只写配置，本会话不生效）
+            try:
+                self._workdirs.set_workdir(path)
+            except Exception as exc:
+                QMessageBox.warning(
+                    self, self.tr("目录不可用"),
+                    self.tr("该目录无法作为工作目录：\n{err}").format(err=exc),
+                )
+                return
+        else:
             self._config.set("workdir", str(path))
+        self.workdir_edit.setText(str(path))
 
     def _commit_port(self) -> None:
         try:

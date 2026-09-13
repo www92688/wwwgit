@@ -56,42 +56,62 @@ class LocalProvider:
     ) -> list[list[Detection]]:
         """YOLO 检测 → conf≥0.45 → NMS(0.45) → 反算坐标；
         结果不足且模板库可用时 TemplateMatcher 补充；模型缺失走纯模板兜底。"""
-        per_frame: list[list[Detection]] = []
         try:
             sess = self._registry.session("watermark")
         except AppError as exc:
             logger.warning("水印检测模型不可用（%s），降级 TemplateMatcher", exc.code)
             sess = None
 
-        for ts, frame in frames:
-            dets: list[Detection] = []
-            if sess is not None:
-                blob, scale, (pad_x, pad_y) = self._letterbox(frame, 640)
-                input_name = sess.get_inputs()[0].name
-                outputs = sess.run(None, {input_name: blob[None].astype(np.float32)})
-                preds = np.asarray(outputs[0])[0]   # (N, 6)
-                h, w = frame.shape[:2]
-                for row in preds:
-                    cx, cy, bw, bh, conf = (float(v) for v in row[:5])
-                    if conf < _WM_CONF_THRESHOLD:
-                        continue
-                    # 反 letterbox 回原分辨率归一化坐标
-                    px = (cx - pad_x) / scale / w
-                    py = (cy - pad_y) / scale / h
-                    pw = bw / scale / w
-                    ph = bh / scale / h
-                    dets.append(Detection(
-                        bbox=BBox(x=max(0.0, px - pw / 2), y=max(0.0, py - ph / 2),
-                                  w=min(pw, 1.0), h=min(ph, 1.0)),
-                        confidence=conf,
-                        label="watermark",
-                        ts=ts,
-                    ))
-                dets = nms(dets, _WM_NMS_IOU)
-            if len(dets) < 1 and self._matcher is not None and self._matcher.available():
-                dets.extend(self._matcher.match(frame, ts=ts))
-            per_frame.append(dets)
-        return per_frame
+        per_frame: list[list[Detection]] = []
+        try:
+            for ts, frame in frames:
+                dets: list[Detection] = []
+                if sess is not None:
+                    blob, scale, (pad_x, pad_y) = self._letterbox(frame, 640)
+                    input_name = sess.get_inputs()[0].name
+                    outputs = sess.run(
+                        None, {input_name: blob[None].astype(np.float32)},
+                    )
+                    preds = np.asarray(outputs[0])[0]   # (N, 6)
+                    h, w = frame.shape[:2]
+                    for row in preds:
+                        cx, cy, bw, bh, conf = (
+                            float(v) for v in row[:5]
+                        )
+                        if conf < _WM_CONF_THRESHOLD:
+                            continue
+                        # 反 letterbox 回原分辨率归一化坐标
+                        px = (cx - pad_x) / scale / w
+                        py = (cy - pad_y) / scale / h
+                        pw = bw / scale / w
+                        ph = bh / scale / h
+                        dets.append(Detection(
+                            bbox=BBox(
+                                x=max(0.0, px - pw / 2),
+                                y=max(0.0, py - ph / 2),
+                                w=min(pw, 1.0), h=min(ph, 1.0),
+                            ),
+                            confidence=conf,
+                            label="watermark",
+                            ts=ts,
+                        ))
+                    dets = nms(dets, _WM_NMS_IOU)
+                if len(dets) < 1 and self._matcher is not None \
+                        and self._matcher.available():
+                    dets.extend(self._matcher.match(frame, ts=ts))
+                per_frame.append(dets)
+            return per_frame
+        except Exception as exc:
+            # D2 降级：模型契约不符/推理失败不致命，模板兜底仍可用则继续
+            logger.warning("水印模型推理失败，降级模板兜底：%s", exc)
+            return self._watermark_template_only(frames)
+
+    def _watermark_template_only(
+        self, frames: list[tuple[float, npt.NDArray[np.uint8]]],
+    ) -> list[list[Detection]]:
+        if self._matcher is not None and self._matcher.available():
+            return [self._matcher.match(frame, ts=ts) for ts, frame in frames]
+        return [[] for _ in frames]
 
     # ---- 字幕检测 ----
     def detect_subtitle(
@@ -109,34 +129,39 @@ class LocalProvider:
             )
             return self._detect_subtitle_classical(frames)
         per_frame: list[list[Detection]] = []
-        for ts, frame in frames:
-            h, w = frame.shape[:2]
-            scale = min(960 / max(w, h), 1.0)
-            nw = max(32, round(w * scale / 32) * 32)
-            nh = max(32, round(h * scale / 32) * 32)
-            resized = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_LINEAR)
-            arr = resized.astype(np.float32).transpose(2, 0, 1) / 255.0
-            arr = (arr - arr.mean()) / max(arr.std(), 1e-6)
-            input_name = sess.get_inputs()[0].name
-            outputs = sess.run(None, {input_name: arr[None].astype(np.float32)})
-            prob = np.asarray(outputs[0])[0]
-            mask = (prob > 0.3).astype(np.uint8)
-            contours, _ = cv2.findContours(
-                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-            dets: list[Detection] = []
-            for contour in contours:
-                x, y, cw, ch = cv2.boundingRect(contour)
-                if cw < 4 or ch < 4:
-                    continue
-                dets.append(Detection(
-                    bbox=BBox(x=x / nw, y=y / nh, w=cw / nw, h=ch / nh),
-                    confidence=1.0,
-                    label="subtitle",
-                    ts=ts,
-                ))
-            per_frame.append(merge_boxes(dets, _SUB_MERGE_IOU))
-        return per_frame
+        try:
+            for ts, frame in frames:
+                h, w = frame.shape[:2]
+                scale = min(960 / max(w, h), 1.0)
+                nw = max(32, round(w * scale / 32) * 32)
+                nh = max(32, round(h * scale / 32) * 32)
+                resized = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_LINEAR)
+                arr = resized.astype(np.float32).transpose(2, 0, 1) / 255.0
+                arr = (arr - arr.mean()) / max(arr.std(), 1e-6)
+                input_name = sess.get_inputs()[0].name
+                outputs = sess.run(None, {input_name: arr[None].astype(np.float32)})
+                prob = np.asarray(outputs[0])[0]
+                mask = (prob > 0.3).astype(np.uint8)
+                contours, _ = cv2.findContours(
+                    mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                )
+                dets: list[Detection] = []
+                for contour in contours:
+                    x, y, cw, ch = cv2.boundingRect(contour)
+                    if cw < 4 or ch < 4:
+                        continue
+                    dets.append(Detection(
+                        bbox=BBox(x=x / nw, y=y / nh, w=cw / nw, h=ch / nh),
+                        confidence=1.0,
+                        label="subtitle",
+                        ts=ts,
+                    ))
+                per_frame.append(merge_boxes(dets, _SUB_MERGE_IOU))
+            return per_frame
+        except Exception as exc:
+            # D2 降级：模型契约不符/推理运行期失败 → 整批走经典文字带
+            logger.warning("字幕模型推理失败，整批降级经典检测：%s", exc)
+            return self._detect_subtitle_classical(frames)
 
     @staticmethod
     def _detect_subtitle_classical(
@@ -287,17 +312,22 @@ class LocalProvider:
             vectors.extend(vecs)
             batch.clear()
 
-        for _ts, frame in frames:
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            resized = cv2.resize(rgb, (224, 224), interpolation=cv2.INTER_LINEAR)
-            arr = resized.astype(np.float32) / 255.0
-            arr = (arr - np.array(_CLIP_MEAN, dtype=np.float32)) / np.array(
-                _CLIP_STD, dtype=np.float32
-            )
-            batch.append(np.ascontiguousarray(arr.transpose(2, 0, 1)))
-            if len(batch) >= 16:
-                flush()
-        flush()
+        try:
+            for _ts, frame in frames:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                resized = cv2.resize(rgb, (224, 224), interpolation=cv2.INTER_LINEAR)
+                arr = resized.astype(np.float32) / 255.0
+                arr = (arr - np.array(_CLIP_MEAN, dtype=np.float32)) / np.array(
+                    _CLIP_STD, dtype=np.float32
+                )
+                batch.append(np.ascontiguousarray(arr.transpose(2, 0, 1)))
+                if len(batch) >= 16:
+                    flush()
+            flush()
+        except Exception as exc:
+            # D2 降级：CLIP 推理失败（契约不符/OOM）→ 经典构图特征
+            logger.warning("CLIP 推理失败，降级经典构图特征：%s", exc)
+            return self._classical_embed(frames)
         mat = np.stack(vectors).astype(np.float32) if vectors else np.zeros(
             (0, 512), dtype=np.float32
         )

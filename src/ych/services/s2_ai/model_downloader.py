@@ -11,7 +11,11 @@ from pathlib import Path
 import numpy as np
 
 from ych.common.cancellation import CancellationToken, TaskCanceled
-from ych.common.errors import ERR_AI_MODEL_MISSING, AppError
+from ych.common.errors import (
+    ERR_AI_MODEL_MISSING,
+    ERR_FILE_NO_WRITE_PERMISSION,
+    AppError,
+)
 from ych.common.schemas import ResumeState
 from ych.services.s2_ai.model_registry import ModelName, models_dir
 from ych.services.s4_net.http_client import HttpClient
@@ -133,6 +137,15 @@ class ModelDownloader:
             except TaskCanceled:
                 # 保留 .part：同源重试/重启应用可续传
                 raise
+            except OSError as exc:
+                # 磁盘满/无写权限等：映射 FILE 域错误码（.part 保留可续传）
+                logger.warning("模型写盘失败 %s：%s", url, exc)
+                last_exc = AppError(
+                    ERR_FILE_NO_WRITE_PERMISSION,
+                    "模型写入失败（磁盘空间不足或无写权限）",
+                    cause=exc,
+                )
+                continue
             except AppError as exc:
                 logger.warning("模型源失败 %s：%s", url, exc.message)
                 last_exc = exc

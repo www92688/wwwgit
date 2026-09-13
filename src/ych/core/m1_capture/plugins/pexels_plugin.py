@@ -109,6 +109,8 @@ class PexelsPlugin(PlatformPlugin):
         chosen = self.pick_download_variant(mp4_files, filters)
         if chosen is None:
             return None   # 无满足清晰度要求的候选 → 本地过滤掉
+        if not chosen.get("link"):
+            return None   # 候选无下载直链：与 Pixabay 对齐，入队前即过滤
         size = chosen.get("file_size") or chosen.get("size")
         user = v.get("user")
         title = ""

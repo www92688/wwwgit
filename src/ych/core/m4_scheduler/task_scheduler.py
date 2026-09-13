@@ -82,8 +82,11 @@ class TaskWorker(QRunnable):
             code = exc.code if isinstance(exc, AppError) else "UNKNOWN"
             if isinstance(exc, AppError) and sched._retry.should_retry(task, exc):
                 task.retry_count += 1
-                if task.db_row_id is not None and task.payload.type != "download":
-                    sched._daos.processes.increment_retry(task.db_row_id)
+                if task.db_row_id is not None:
+                    if task.payload.type == "download":
+                        sched._daos.downloads.increment_retry(task.db_row_id)
+                    else:
+                        sched._daos.processes.increment_retry(task.db_row_id)
                 delay = sched._retry.backoff_seconds(task.retry_count - 1)
                 logger.info("task %s 将在 %ss 后第 %d 次重试",
                             task.task_id, delay, task.retry_count)
@@ -244,6 +247,10 @@ class TaskScheduler(QObject):
             resume_ids = [int(x) for x in resume_ids_raw]  # type: ignore[attr-defined]
             if resume_ids:
                 task.db_row_id = resume_ids[0]
+                row = self._daos.downloads.get(task.db_row_id)
+                if row is not None:
+                    # 续传重排回填已用重试次数：跨重启重试预算不重置
+                    task.retry_count = row.retry_count
             elif metas:
                 # 重新提交同一素材：优先复用带断点状态的历史行（断点续传）
                 m0 = metas[0]

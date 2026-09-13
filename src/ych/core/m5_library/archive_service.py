@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +30,18 @@ class ArchiveService:
         self._config = config
         self._assets = assets
         self._categories = categories
+        # 目录级命名锁：并发下载同关键词时串行化「取号→落位」，防止
+        # next_filename 与 os.replace 之间的 TOCTOU 竞态互相覆盖成品
+        self._name_locks: dict[str, threading.Lock] = {}
+        self._name_locks_guard = threading.Lock()
+
+    def _dir_lock(self, key: str) -> threading.Lock:
+        with self._name_locks_guard:
+            lock = self._name_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._name_locks[key] = lock
+            return lock
 
     # ---- 命名 ----
     def next_filename(
@@ -80,11 +93,13 @@ class ArchiveService:
         final_dir = wd / category / keyword / date_str
         final_dir.mkdir(parents=True, exist_ok=True)
 
-        candidate, _name = self.next_filename(
-            meta.plugin_id, keyword, date_str, ".mp4"
-        )
-        # os.replace 同卷原子移动（.part 已由 S4 fsync 落盘）
-        SafeFileOps.atomic_write(candidate, lambda dst: _move(temp_file, dst))
+        # 取号与落位在同一把目录锁内完成（并发下载同目录不互相覆盖）
+        with self._dir_lock(str(final_dir)):
+            candidate, _name = self.next_filename(
+                meta.plugin_id, keyword, date_str, ".mp4",
+            )
+            # os.replace 同卷原子移动（.part 已由 S4 fsync 落盘）
+            SafeFileOps.atomic_write(candidate, lambda dst: _move(temp_file, dst))
 
         readonly_on = bool(self._config.get("readonly_protect_raw"))
         if readonly_on:

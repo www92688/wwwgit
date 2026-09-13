@@ -465,7 +465,8 @@ class CapturePage(QWidget):
                 self.tr("保存位置不存在：") + str(path),
             )
             return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            Toast.show_message(self, self.tr("打开文件管理器失败"), error=True)
 
     def retranslate(self) -> None:
         """语言切换：静态文案重翻译 + 搜索按钮按当前状态重算。"""

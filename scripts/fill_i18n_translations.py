@@ -170,6 +170,12 @@ EN: dict[tuple[str, str], str] = {
         "Failed to write the API Key to the system credential store: {msg}",
     ("SettingsPage", "Key 写入系统凭据库失败：{msg}"):
         "Failed to write the key to the system credential store: {msg}",
+    ("SettingsPage", "取消"): "Cancel",
+    ("SettingsPage", "已请求取消，将保留已下载断点…"):
+        "Cancel requested; the partial download is kept for resume…",
+    ("SettingsPage", "目录不可用"): "Directory Unavailable",
+    ("SettingsPage", "该目录无法作为工作目录：\n{err}"):
+        "This directory cannot be used as the working directory:\n{err}",
     ("Toast", "查看日志"): "View logs",
     ("_Bridge", "预处理"): "Preprocess",
     ("_Bridge", "去重"): "Dedup",
