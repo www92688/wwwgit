@@ -137,7 +137,7 @@ class DimScores:
 class CompareTarget:
     """单个对比对象（自动候选或手动指定）。"""
 
-    source: Literal["auto", "manual"]
+    source: Literal["auto", "manual", "local"]
     platform_id: str = ""
     video_key: str = ""
     title: str = ""

@@ -54,6 +54,8 @@ class ConfigService(QObject):
         # 自动对比候选
         "compare_candidates_per_platform": 20,
         "candidate_cache_ttl_days": 7,
+        # 本地同关键词素材池上限（对比目标兜底，不依赖在线平台可达性）
+        "compare_local_pool_max": 8,
         # 特征与检测
         "feature_max_frames": 300,
         "detect_sample_frames": 24,

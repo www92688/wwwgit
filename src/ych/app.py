@@ -244,6 +244,44 @@ def wire_task_feedback(
                 "compare": self.tr("重复度分析"),
             }.get(ttype, ttype)
 
+        def _cap_names(self, names: list[str], cap: int) -> str:
+            shown = "、".join(names[:cap])
+            if len(names) > cap:
+                shown += self.tr(" 等 {n} 个").format(n=len(names))
+            return shown
+
+        def _dedup_done(self, summary: Any, toast: Callable[..., None]) -> None:
+            """去重成功终态 toast：全部跳过必须讲清原因与出路，不能只报数字。"""
+            outputs = list(summary.get("outputs") or [])
+            skipped = int(summary.get("skipped") or 0)
+            failed = int(summary.get("failed") or 0)
+            names = [str(x) for x in (summary.get("skipped_names") or [])]
+            msgs = [str(x) for x in (summary.get("failed_msgs") or [])]
+            if not outputs and not failed and names and skipped == len(names):
+                # 全部「输出已存在」：明确没干活 + 怎么重新生成
+                toast(self.tr(
+                    "输出已存在，未重新处理：{names}\n"
+                    "如需重新生成，请删除「已去重」目录下的同名文件",
+                ).format(names=self._cap_names(names, 2)), timeout_ms=8000)
+                return
+            tail = ""
+            before = summary.get("before_pct")
+            after = summary.get("after_pct")
+            if before is not None and after is not None:
+                tail = self.tr("；重复度 {a}% → {b}%").format(a=before, b=after)
+            extra = ""
+            if names:
+                extra += self.tr("，跳过 {n} 条（{names} 已存在）").format(
+                    n=skipped, names=self._cap_names(names, 2))
+            elif skipped:
+                extra += self.tr("，跳过 {n} 条").format(n=skipped)
+            if msgs:
+                extra += self.tr("，失败 {n} 条：{msgs}").format(
+                    n=len(msgs), msgs="；".join(msgs[:2]))
+            toast(self.tr(
+                "去重完成：成功 {n} 条{extra}{tail}；输出在 已去重/ 目录",
+            ).format(n=len(outputs), extra=extra, tail=tail))
+
         def on_done(
             self, task_id: str, ttype: str, state: str,
             message: str, summary: Any,
@@ -266,23 +304,31 @@ def wire_task_feedback(
                         "（_cleaned 后缀）",
                     ).format(n=len(summary.get("outputs") or []), extra=extra))
                 elif ttype == "dedup":
-                    before = summary.get("before_pct")
-                    after = summary.get("after_pct")
-                    tail = (self.tr("；重复度 {a}% → {b}%").format(
-                        a=before, b=after,
-                    ) if before is not None and after is not None else "")
-                    toast(self.tr(
-                        "去重完成：成功 {n} 条{extra}{tail}；输出在 已去重/ 目录",
-                    ).format(n=len(summary.get("outputs") or []),
-                             extra=extra, tail=tail))
+                    self._dedup_done(summary, toast)
+                    dedup.show_dedup_result(dict(summary))
                 elif ttype == "compare":
                     srcs = compare_srcs.get(task_id) or []
                     if srcs:
                         report = ctx.daos().reports.latest_for(Path(srcs[0]))
                         if report is not None:
                             dedup.render_report(report)
-                    toast(self.tr("重复度分析完成{extra}，已按结果标注推荐档位")
-                          .format(extra=extra))
+                    n_ok = int(summary.get("targets_ok") or 0)
+                    n_local = int(summary.get("targets_local") or 0)
+                    if n_ok:
+                        toast(self.tr(
+                            "重复度分析完成：最高相似度 {score}%，对比 {n} 个"
+                            "视频（本地素材库 {local}、在线平台 {online}），"
+                            "已按结果标注推荐档位",
+                        ).format(
+                            score=summary.get("overall_score"),
+                            n=n_ok, local=n_local, online=n_ok - n_local,
+                        ))
+                    else:
+                        toast(self.tr(
+                            "重复度分析完成：没有可比对的视频"
+                            "（在线平台均不可用，本地素材库也没有同关键词的"
+                            "其它素材）。0 分不代表重复度低",
+                        ), timeout_ms=8000)
             elif state == "failed":
                 extra = (self.tr("。可到 设置 → AI 模型 下载所需模型")
                          if "AI001" in message else "")

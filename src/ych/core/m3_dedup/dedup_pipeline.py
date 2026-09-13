@@ -11,7 +11,8 @@ from typing import Protocol
 from ych.common.cancellation import CancellationToken, ProgressFn, SkippedSignal
 from ych.common.schemas import FeatureSet, MediaInfo
 from ych.core.interfaces import IDownloadArchiveTarget
-from ych.core.m3_dedup.similarity import SimilarityCalculator
+from ych.core.m3_dedup.local_pool import local_similar_pool
+from ych.core.m3_dedup.similarity import DEFAULT_WEIGHTS, SimilarityCalculator
 from ych.core.m3_dedup.techniques.base import ClipContext
 from ych.core.m3_dedup.techniques.registry import TechniqueRegistry
 from ych.services.s1_media.encoder_spec import EncoderSpec
@@ -52,6 +53,8 @@ class DedupPipeline:
         feature_extract: _FeatureExtract | None = None,   # FeatureExtractService.extract
         calculator: SimilarityCalculator | None = None,
         reports: ReportDao | None = None,                 # latest_for
+        weights: tuple[float, float, float] = DEFAULT_WEIGHTS,
+        pool_limit: int = 8,
     ) -> None:
         self._runner = runner
         self._prober = prober
@@ -61,6 +64,8 @@ class DedupPipeline:
         self._extract = feature_extract
         self._calc = calculator
         self._reports = reports
+        self._weights_cfg = weights
+        self._pool_limit = max(1, int(pool_limit))
 
     # ---- 对外 ----
     def output_path_for(self, src: Path) -> Path:
@@ -167,41 +172,87 @@ class DedupPipeline:
 
     # ---- 前后重复度对比（14.6 第 4 步）----
     def _compare_scores(self, src: Path, out: Path) -> tuple[float | None, float | None]:
-        """复用 ReportDao.latest_for(src) 的同批 targets 重算；不可比时返回 (None, None)。"""
-        if self._extract is None or self._calc is None or self._reports is None:
+        """处理前后与同一批对比对象的最大相似度。
+
+        对象优先取 ReportDao.latest_for(src) 的可用 targets（手动参考/
+        在线候选）；没有可用 targets 时回退本地同关键词素材池——保证
+        "重复度 x% → y%" 在离线环境也是真实计算而非恒空。
+        """
+        if self._extract is None or self._calc is None:
             return (None, None)
         report = None
         try:
-            report = self._reports.latest_for(src)
+            report = self._reports.latest_for(src) if self._reports else None
         except Exception as exc:
             logger.debug("读取历史对比报告失败：%s", exc)
-        if report is None:
+        target_paths: list[Path] = []
+        before_pct: float | None = None
+        if report is not None:
+            target_paths = [
+                Path(t.local_path) for t in report.targets
+                if t.status == "ok" and t.local_path
+                and Path(t.local_path).exists()
+            ]
+            if target_paths:
+                before_pct = float(report.overall_score)
+        if not target_paths:
+            # 本地池兜底：前后用同一批对象，分数才可比
+            try:
+                target_paths = local_similar_pool(
+                    src, self._workdirs.workdir(), self._pool_limit)
+            except Exception as exc:   # 未设置工作目录等
+                logger.debug("本地素材池构建失败：%s", exc)
+                return (None, None)
+        if not target_paths:
             return (None, None)
-        weights = (float(report.weights[0]), float(report.weights[1]),
-                   float(report.weights[2]))
-        before_pct = float(report.overall_score)
-        after_overall = 0.0
-        compared = 0
+
         try:
             feat_after = self._extract(Path(out))
         except Exception as exc:
             logger.warning("去重后特征提取失败：%s", exc)
             return (before_pct, None)
-        for target in report.targets:
-            if target.status != "ok" or not target.local_path:
-                continue
-            local = Path(target.local_path)
-            if not local.exists():
-                continue
+        if before_pct is None:
+            # 本地池路径：before 需要源视频对同一批对象重算
+            try:
+                feat_src = self._extract(src)
+            except Exception as exc:
+                logger.warning("去重前特征提取失败：%s", exc)
+                return (None, None)
+        else:
+            feat_src = None
+        after_overall = 0.0
+        before_overall = 0.0
+        compared = 0
+        for local in target_paths:
             try:
                 feat_t = self._extract(local)
             except Exception as exc:
                 logger.debug("target 特征失效 %s：%s", local.name, exc)
                 continue
-            scores = self._calc.compare(feat_after, feat_t, weights)
-            after_overall = max(after_overall, scores.overall)
+            after_overall = max(
+                after_overall,
+                self._calc.compare(feat_after, feat_t, self._weights(report)).overall,
+            )
+            if feat_src is not None:
+                before_overall = max(
+                    before_overall,
+                    self._calc.compare(feat_src, feat_t, self._weights(report)).overall,
+                )
             compared += 1
+        if feat_src is not None and compared:
+            before_pct = round(before_overall * 100.0, 1)
         if compared == 0:
             return (before_pct, None)
         return (before_pct, round(after_overall * 100.0, 1))
+
+    def _weights(self, report: object) -> tuple[float, float, float]:
+        """历史报告存在时沿用其权重，否则用配置权重。"""
+        weights = getattr(report, "weights", None)
+        if weights and len(weights) >= 3:
+            try:
+                return (float(weights[0]), float(weights[1]),
+                        float(weights[2]))
+            except (TypeError, ValueError):
+                pass
+        return self._weights_cfg
 

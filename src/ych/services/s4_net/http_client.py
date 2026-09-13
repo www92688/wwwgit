@@ -277,6 +277,15 @@ class HttpClient(QObject):
         else:
             etag = resp.headers.get("ETag", "")
 
+        # 4xx/5xx 的错误页响应体也会照常走完流式循环，必须在此拦下：
+        # 否则 404 文本会被当作正常文件保存，最终报"文件损坏"误导排查
+        if resp.status_code not in (200, 206):
+            resp.close()
+            raise AppError(
+                ERR_DL_VERIFY_FAILED,
+                f"下载源响应异常（HTTP {resp.status_code}）",
+            )
+
         remaining = int(resp.headers.get("Content-Length", "0") or 0)
         total_bytes = start_from + remaining
         downloaded = start_from

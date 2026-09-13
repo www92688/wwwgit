@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import requests
 
-from ych.common.errors import ERR_NET_TIMEOUT, AppError
+from ych.common.errors import ERR_DL_VERIFY_FAILED, ERR_NET_TIMEOUT, AppError
 from ych.core.m4_scheduler.retry_controller import is_retryable
 from ych.services.s4_net.http_client import HttpClient
 
@@ -20,8 +20,8 @@ def client(memory_config) -> HttpClient:
 class _FakeResp:
     """模拟 stream 响应：iter_content 首块后抛传输异常。"""
 
-    def __init__(self, chunks_error: bool = True) -> None:
-        self.status_code = 200
+    def __init__(self, chunks_error: bool = True, status: int = 200) -> None:
+        self.status_code = status
         self.headers: dict[str, str] = {}
         self._chunks_error = chunks_error
         self.closed = False
@@ -75,3 +75,23 @@ def test_fallback_get_failure_maps_to_retryable_net_error(
         )
     assert ei.value.code == ERR_NET_TIMEOUT
     assert is_retryable(ei.value.code)
+
+
+@pytest.mark.parametrize("status", [403, 404, 503])
+def test_http_error_status_rejected_before_saving(
+    client: HttpClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    status: int,
+) -> None:
+    """4xx/5xx 必须在写盘前拒绝：此前 404 错误页会被存成 .part，
+    模型下载最终报"模型文件损坏"、媒体下载得到坏文件，误导排查。"""
+    resp = _FakeResp(chunks_error=False, status=status)
+    monkeypatch.setattr(client._session, "get", lambda *a, **k: resp)
+    with pytest.raises(AppError) as ei:
+        client.download_stream(
+            "https://x.com/v3.mp4", tmp_path / "v3.mp4",
+            resume=None, on_progress=None, token=None,
+        )
+    assert ei.value.code == ERR_DL_VERIFY_FAILED
+    assert str(status) in ei.value.message
+    assert resp.closed                        # 响应句柄仍被释放
+    assert not (tmp_path / "v3.mp4.part").exists()   # 错误页绝不落盘

@@ -39,16 +39,19 @@ MODEL_MANIFEST: dict[str, ModelSpec] = {
         key="subtitle", file="subtitle_det_ppocrv4_mobile.onnx",
         desc="字幕检测（DBNet 文本检测，去字幕=自动检测 必需）",
         urls=[
-            "https://hf-mirror.com/SWHL/RapidOCR/resolve/main/PP-OCRv4/det/ch_PP-OCRv4_det_infer.onnx",
-            "https://hf-mirror.com/SWHL/RapidOCR/resolve/main/PP-OCRv3/det/ch_PP-OCRv3_det_infer.onnx",
-            "https://hf-mirror.com/RapidAI/RapidOCR/resolve/main/python/rapidocr_onnxruntime/models/ch_PP-OCRv4_det_infer.onnx",
+            # SWHL/RapidOCR 仓库里 det 模型直接放在版本目录下（无 det/ 子目录，
+            # 写成 PP-OCRv4/det/... 会 404）；RapidAI/RapidOCR 仓库已转为
+            # 鉴权仓库，不能再作候选源
+            "https://hf-mirror.com/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_PP-OCRv4_det_infer.onnx",
+            "https://hf-mirror.com/SWHL/RapidOCR/resolve/main/PP-OCRv3/ch_PP-OCRv3_det_infer.onnx",
         ],
     ),
     "inpaint": ModelSpec(
         key="inpaint", file="lama_fp32_512.onnx",
         desc="图像修复 LaMa（大面积水印修复；缺失自动降级 TELEA）",
+        # 仓库曾提供 lama_fp32_512.onnx，现已下架，仅剩 lama_fp32.onnx
+        # （固定 512 输入，与推理端 _INPAINT_TILE 契约一致，已实测通过校验）
         urls=[
-            "https://hf-mirror.com/Carve/LaMa-ONNX/resolve/main/lama_fp32_512.onnx",
             "https://hf-mirror.com/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx",
         ],
     ),

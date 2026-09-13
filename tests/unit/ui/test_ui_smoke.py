@@ -479,7 +479,9 @@ def test_wire_task_feedback(qapp, qtbot, tmp_path, monkeypatch) -> None:
         log_dir=lambda: tmp_path,
     )
     rendered: list[object] = []
-    dedup = SimpleNamespace(render_report=rendered.append)
+    dedup_results: list[dict] = []
+    dedup = SimpleNamespace(render_report=rendered.append,
+                            show_dedup_result=dedup_results.append)
     parent = QWidget()
     qtbot.addWidget(parent)
     compare_srcs: dict[str, list[str]] = {}
@@ -493,9 +495,14 @@ def test_wire_task_feedback(qapp, qtbot, tmp_path, monkeypatch) -> None:
 
     compare_srcs["t2"] = [r"C:\w\a.mp4"]
     sigs.task_done.emit("t2", "compare", "success", "",
-                        {"overall_score": 60.0})
+                        {"overall_score": 60.0, "targets_ok": 5,
+                         "targets_local": 3})
     assert rendered == [report]
     assert "重复度分析完成" in captured[-1][0]
+    assert "5" in captured[-1][0] and "本地素材库 3" in captured[-1][0]
+    sigs.task_done.emit("t2b", "compare", "success", "",
+                        {"overall_score": 0.0, "targets_ok": 0})
+    assert "没有可比对的视频" in captured[-1][0]
 
     sigs.task_done.emit("t3", "preprocess", "failed", "[AI001] 模型缺失", {})
     assert captured[-1][1] is True and "AI001" in captured[-1][0]
@@ -504,6 +511,15 @@ def test_wire_task_feedback(qapp, qtbot, tmp_path, monkeypatch) -> None:
                         {"outputs": ["o"], "failed": 0, "skipped": 0,
                          "before_pct": 80.0, "after_pct": 12.0})
     assert "80.0% → 12.0%" in captured[-1][0]
+    assert dedup_results and dedup_results[-1]["after_pct"] == 12.0
+
+    sigs.task_done.emit("t5", "dedup", "success", "",
+                        {"outputs": [], "failed": 0, "skipped": 1,
+                         "skipped_names": ["a_deduped.mp4"],
+                         "failed_msgs": [], "output_dir": r"D:\w\已去重"})
+    assert "输出已存在" in captured[-1][0]
+    assert "a_deduped.mp4" in captured[-1][0]
+    assert "重新生成" in captured[-1][0]
 
 
 def test_download_queue_cancel_button(qapp, qtbot) -> None:

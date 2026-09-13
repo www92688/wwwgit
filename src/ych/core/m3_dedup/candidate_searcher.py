@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ych.common.cancellation import CancellationToken, ProgressFn, TaskCanceled
-from ych.common.errors import ERR_PLG_UNAVAILABLE, AppError
+from ych.common.errors import ERR_PLG_UNAVAILABLE
 from ych.common.schemas import (
     CompareReport,
     CompareTarget,
@@ -18,6 +18,7 @@ from ych.common.schemas import (
     VideoMeta,
 )
 from ych.core.m3_dedup.candidate_cache import CandidateCache
+from ych.core.m3_dedup.local_pool import keyword_of, local_similar_pool
 from ych.core.m3_dedup.similarity import DEFAULT_WEIGHTS, ReportBuilder, SimilarityCalculator
 from ych.core.m5_library.workdir_manager import WorkDirManager
 from ych.services.s1_media.probe_service import ProbeService
@@ -105,10 +106,20 @@ class CandidateSearcher:
                 targets.append(target)
 
         if mode in ("auto", "both"):
+            # 本地相似素材池：同关键词的已有素材始终参与对比（不依赖
+            # 在线平台可达性），保证"分析重复度"永远有真实对比对象
+            pool = self._local_pool(src)
+            for path in pool:
+                targets.append(
+                    self._score_local(path, feat_a, weights, token,
+                                      source="local"))
+            if on_progress and pool:
+                on_progress(0.45)
             kw = keyword or self._keyword_from_archive(src)
             if not kw:
-                logger.warning("非归档素材未提供关键词，跳过自动对比")
-                unavailable.append("no_keyword")
+                if not pool:
+                    logger.warning("非归档素材未提供关键词，跳过自动对比")
+                    unavailable.append("no_keyword")
             else:
                 auto_targets, auto_unavail = self._search_and_score(
                     kw, feat_a, weights, token,
@@ -124,13 +135,16 @@ class CandidateSearcher:
                            unavailable)
         return report
 
-    # ---- manual 本地参考 ----
+    # ---- manual / 本地素材池 ----
     def _score_local(
         self, path: Path, feat_a: FeatureSet,
         weights: tuple[float, float, float], token: CancellationToken | None,
+        source: str = "manual",
     ) -> CompareTarget:
-        target = CompareTarget(source="manual", local_path=str(path),
-                               title=path.name)
+        target = CompareTarget(source=source,   # type: ignore[arg-type]
+                               local_path=str(path), title=path.name)
+        if source == "local":
+            target.platform_id = "local"
         try:
             feat_b = self._extract(path, token)
             target.scores = self._calc.compare(feat_a, feat_b, weights)
@@ -144,19 +158,24 @@ class CandidateSearcher:
 
     # ---- auto 平台候选 ----
     def _keyword_from_archive(self, src: Path) -> str | None:
-        """归档路径 <workdir>/<大类>/<关键词>/<日期>/file.mp4 → 关键词。
-
-        parts=(大类,关键词,日期,文件名)，关键词取 parts[-3]（日期是 [-2]）。
-        已去重镜像层（已去重/<大类>/<关键词>/...）先剥掉"已去重"段。
-        """
+        """归档路径 <workdir>/<大类>/<关键词>/<日期>/file.mp4 → 关键词。"""
         try:
-            rel = Path(src).relative_to(self._workdirs.workdir())
-        except (ValueError, AppError):
+            return keyword_of(src, self._workdirs.workdir())
+        except Exception:   # 未设置工作目录等：视为非归档素材
             return None
-        parts = tuple(p for p in rel.parts if p != "已去重")
-        if len(parts) >= 3:
-            return parts[-3] or None
-        return None
+
+    def _local_pool(self, src: Path) -> list[Path]:
+        """同关键词本地素材池；未设置工作目录/取配置失败时为空。"""
+        try:
+            limit = int(
+                self._config.get_typed("compare_local_pool_max", int))
+        except Exception:
+            limit = 8
+        try:
+            return local_similar_pool(src, self._workdirs.workdir(), limit)
+        except Exception as exc:
+            logger.debug("本地素材池构建失败：%s", exc)
+            return []
 
     def _compare_plugins(self) -> list[_PluginLike]:
         ids = set(REQUIRED_PLATFORMS) | set(OPTIONAL_PLATFORMS)

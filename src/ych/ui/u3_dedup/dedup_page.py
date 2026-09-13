@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMenu,
+    QMessageBox,
     QPushButton,
     QRadioButton,
     QVBoxLayout,
@@ -43,6 +44,108 @@ class _SchemeManagerLike(Protocol):
     def save_custom(self, name: str, config: list[dict[str, object]]) -> int: ...
 
     def load_custom(self, name: str) -> list[dict[str, object]] | None: ...
+
+
+class DedupResultBar(QWidget):
+    """去重结果持久展示条：成功/跳过/失败明细 + 输出目录打开入口。
+
+    只在有一次去重结果后显示；toast 一闪而过的补充（任务完成但用户
+    离开页面/错过 toast 时仍有据可查）。
+    """
+
+    regenerate_requested = Signal(list)   # 全部「输出已存在」跳过时的重跑入口
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._summary: dict[str, Any] = {}
+        self._output_dir = ""
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.label = QLabel()
+        self.label.setWordWrap(True)
+        self.label.setTextFormat(Qt.TextFormat.RichText)
+        self.btn_open = QPushButton(self.tr("打开输出目录"))
+        self.btn_open.setObjectName("secondaryBtn")
+        self.btn_open.clicked.connect(self._open_dir)
+        self.btn_regenerate = QPushButton(self.tr("重新生成"))
+        self.btn_regenerate.setObjectName("secondaryBtn")
+        self.btn_regenerate.setToolTip(self.tr(
+            "删除「已去重」目录下的同名输出文件，并按当前勾选素材与方案重新去重"))
+        self.btn_regenerate.clicked.connect(self._emit_regenerate)
+        row.addWidget(self.label, 1)
+        row.addWidget(self.btn_regenerate)
+        row.addWidget(self.btn_open)
+        self.hide()
+
+    def set_summary(self, summary: dict[str, Any]) -> None:
+        self._summary = dict(summary)
+        self._output_dir = str(summary.get("output_dir") or "")
+        self._render()
+
+    def _regen_srcs(self) -> list[str]:
+        """可重新生成的源素材路径（=「输出已存在」跳过的那批）。"""
+        return [str(x) for x in (self._summary.get("skipped_srcs") or [])]
+
+    def regen_outputs(self) -> list[Path]:
+        """与 skipped_srcs 对应的已存在输出文件（存在才返回）。"""
+        out_dir = self._output_dir
+        if not out_dir:
+            return []
+        names = [str(x) for x in (self._summary.get("skipped_names") or [])]
+        return [Path(out_dir) / n for n in names if (Path(out_dir) / n).exists()]
+
+    def _emit_regenerate(self) -> None:
+        srcs = self._regen_srcs()
+        if srcs:
+            self.regenerate_requested.emit(srcs)
+
+    def _render(self) -> None:
+        s = self._summary
+        n_ok = len(s.get("outputs") or [])
+        skipped = int(s.get("skipped") or 0)
+        failed = int(s.get("failed") or 0)
+        names = [str(x) for x in (s.get("skipped_names") or [])]
+        msgs = [str(x) for x in (s.get("failed_msgs") or [])]
+        color = "#e03131" if failed else ("#e8890c" if skipped else "#2f9e6e")
+        text = f'<span style="color:{color};">{self.tr("去重结果")}</span>：' \
+               + self.tr("成功 {n} 条").format(n=n_ok)
+        if skipped:
+            text += "，" + self.tr("跳过 {n} 条").format(n=skipped)
+        if failed:
+            text += "，" + self.tr("失败 {n} 条").format(n=failed)
+        details: list[str] = []
+        if names:
+            shown = "、".join(names[:3])
+            if len(names) > 3:
+                shown += self.tr(" 等 {n} 个").format(n=len(names))
+            details.append(self.tr("已存在未重处理：{names}").format(names=shown))
+        if msgs:
+            details.append(self.tr("失败原因：{msgs}").format(
+                msgs="；".join(msgs[:3])))
+        before = s.get("before_pct")
+        after = s.get("after_pct")
+        if before is not None and after is not None:
+            details.append(self.tr("重复度 {a}% → {b}%").format(a=before, b=after))
+        if details:
+            text += "<br><span style='color:#a5aec0;'>" \
+                    + "；".join(details) + "</span>"
+        self.label.setText(text)
+        self.btn_open.setVisible(bool(self._output_dir))
+        self.btn_regenerate.setVisible(bool(self._regen_srcs()))
+        self.show()
+
+    def _open_dir(self) -> None:
+        if not reveal_in_file_manager(self._output_dir):
+            Toast.show_message(self, self.tr("打开失败：目录不存在或无法访问"),
+                               error=True)
+
+    def retranslate(self) -> None:
+        self.btn_open.setText(self.tr("打开输出目录"))
+        self.btn_regenerate.setText(self.tr("重新生成"))
+        self.btn_regenerate.setToolTip(self.tr(
+            "删除「已去重」目录下的同名输出文件，并按当前勾选素材与方案重新去重"))
+        if self.isVisible():
+            self._render()
 
 
 class DedupPage(QWidget):
@@ -159,7 +262,10 @@ class DedupPage(QWidget):
         split.addLayout(right_box, 1)
         root.addLayout(split, 1)
 
-        # ---- 底：报告 ----
+        # ---- 底：去重结果条 + 报告 ----
+        self.result_bar = DedupResultBar()
+        self.result_bar.regenerate_requested.connect(self._regenerate)
+        root.addWidget(self.result_bar)
         self.report_view = ReportView()
         root.addWidget(self.report_view, 1)
 
@@ -276,6 +382,47 @@ class DedupPage(QWidget):
             recommended = self._schemes.recommend(float(report.overall_score) / 100.0)
             self.mark_recommended(recommended)
 
+    def show_dedup_result(self, summary: dict[str, Any]) -> None:
+        """任务终态回填：页面内持久展示去重结果（toast 之外的第二通道）。"""
+        self.result_bar.set_summary(summary)
+
+    def _regenerate(self, srcs: list[str]) -> None:
+        """「输出已存在」跳过后的重跑：确认 → 删旧输出 → 按当前方案重新提交。"""
+        if not srcs:
+            return
+        outputs = self.result_bar.regen_outputs()
+        n = len(srcs)
+        answer = QMessageBox.question(
+            self,
+            self.tr("重新生成去重输出"),
+            self.tr(
+                "将删除「已去重」目录下 {n} 个同名输出文件，"
+                "并按当前方案重新去重。继续？",
+            ).format(n=len(outputs) or n),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        errors: list[str] = []
+        for out in outputs:
+            try:
+                out.unlink()
+            except OSError as exc:
+                errors.append(f"{out.name}：{exc}")
+        if errors:
+            Toast.show_message(
+                self,
+                self.tr("删除旧输出失败：{msgs}").format(
+                    msgs="；".join(errors[:3])),
+                error=True,
+            )
+            return
+        params = self.current_params()
+        self._last_submit_key = (tuple(srcs), str(params))
+        self._last_submit_ts = time.monotonic()
+        self.dedup_requested.emit(srcs, params)
+
     def mark_recommended(self, preset_id: str) -> None:
         """推荐档徽标：记录推荐档并刷新三张卡片标题/说明文案。"""
         self._recommended_id = preset_id
@@ -388,6 +535,7 @@ class DedupPage(QWidget):
         self.btn_apply_preset.setText(self.tr("套用预设"))
         self.btn_to_custom.setText(self.tr("预设→自定义微调"))
         self.editor.retranslate()
+        self.result_bar.retranslate()
         self.report_view.retranslate()
 
 

@@ -378,6 +378,13 @@ class AppContext:
         if "pipeline_m3" not in self._cache:
             from ych.core.m3_dedup.dedup_pipeline import DedupPipeline
 
+            raw = self.config().get("dedup_weights")
+            vals = ([float(x) for x in raw]
+                    if isinstance(raw, (list, tuple)) else [])
+            if len(vals) >= 3 and abs(sum(vals[:3]) - 1.0) < 1e-6:
+                weights = (vals[0], vals[1], vals[2])
+            else:
+                weights = (0.5, 0.25, 0.25)
             self._cache["pipeline_m3"] = DedupPipeline(
                 runner=self.ffmpeg_runner(),
                 prober=self.prober(),
@@ -387,6 +394,9 @@ class AppContext:
                 feature_extract=self.feature_extract_service().extract,
                 calculator=self.similarity(),
                 reports=self.daos().reports,
+                weights=weights,
+                pool_limit=int(
+                    self.config().get_typed("compare_local_pool_max", int)),
             )
         return cast("DedupPipeline", self._cache_cast("pipeline_m3"))
 
@@ -416,6 +426,8 @@ class AppContext:
         return cast(Any, self._cache_cast("fail_manager"))
 
     def _handle_dedup(self, task: Any) -> Any:
+        import time
+
         from ych.common.cancellation import SkippedSignal, TaskCanceled
         from ych.core.m4_scheduler.task_scheduler import TaskResult
 
@@ -423,17 +435,47 @@ class AppContext:
         items = list(payload.data.get("items") or [])
         outputs: list[str] = []
         failed = skipped = 0
+        # 明细反馈用：「输出已存在」型跳过记录文件名；取消不计入（语义不同）
+        skipped_names: list[str] = []
+        skipped_srcs: list[str] = []
+        failed_msgs: list[str] = []
         token = getattr(task, "token", None)
         before_pct: list[float] = []
         after_pct: list[float] = []
-        for raw in items:
+        sched = self.scheduler()
+        total = max(1, len(items))
+
+        def progress_for(idx: int) -> Any:
+            # 单条 ffmpeg 进度 → 批次整体 (idx+ratio)/total；限频防信号风暴，
+            # 结尾 1.0 不限频保证收尾必达
+            last = [0.0]
+
+            def on_progress(ratio: float) -> None:
+                now = time.monotonic()
+                if ratio < 1.0 and now - last[0] < 0.25:
+                    return
+                last[0] = now
+                sched.emit_progress(task.task_id, (idx + ratio) / total)
+
+            return on_progress
+
+        def output_name_for(src: str) -> str:
+            try:
+                return self.dedup_pipeline().output_path_for(Path(src)).name
+            except Exception:
+                return Path(src).name
+
+        out_dir: str | None = None
+        for idx, raw in enumerate(items):
             src = str(raw.get("src"))
             params = list(raw.get("technique_params") or [])
             try:
                 result = self.dedup_pipeline().execute_item(
-                    Path(src), params, None, token,
+                    Path(src), params, progress_for(idx), token,
                 )
                 outputs.append(str(result.out_path))
+                if out_dir is None:
+                    out_dir = str(result.out_path.parent)
                 if result.before_pct is not None:
                     before_pct.append(result.before_pct)
                 if result.after_pct is not None:
@@ -443,21 +485,35 @@ class AppContext:
                 raise
             except SkippedSignal:
                 skipped += 1
-                continue
+                skipped_names.append(output_name_for(src))
+                skipped_srcs.append(src)
             except Exception as exc:
                 code = getattr(exc, "code", "")
                 if code == "TASK004":
                     skipped += 1
                     continue
                 failed += 1
+                failed_msgs.append(f"{Path(src).name}：{exc}")
                 self._fail_manager().record(
                     task, exc if isinstance(exc, Exception) else RuntimeError(str(exc)))
+            finally:
+                sched.emit_progress(task.task_id, (idx + 1) / total)
         first = outputs[0] if outputs else None
+        if out_dir is None and skipped_names and items:
+            # 全部跳过时无新产出：以首条素材的应输出目录为准（现存文件就在那）
+            try:
+                out_dir = str(self.dedup_pipeline().output_path_for(
+                    Path(str(items[0].get("src")))).parent)
+            except Exception:
+                out_dir = None
         before = round(sum(before_pct) / len(before_pct), 1) if before_pct else None
         after = round(sum(after_pct) / len(after_pct), 1) if after_pct else None
         return TaskResult(
             summary={"outputs": outputs, "failed": failed, "skipped": skipped,
-                     "before_pct": before, "after_pct": after},
+                     "before_pct": before, "after_pct": after,
+                     "skipped_names": skipped_names, "skipped_srcs": skipped_srcs,
+                     "failed_msgs": failed_msgs,
+                     "output_dir": out_dir},
             output_path=first,
         )
 
@@ -469,16 +525,26 @@ class AppContext:
         mode = str(payload.data.get("mode") or "both")
         refs = [Path(str(p)) for p in (payload.data.get("ref_paths") or [])]
         keyword = payload.data.get("keyword")
+        sched = self.scheduler()
+
+        def on_progress(ratio: float) -> None:
+            sched.emit_progress(task.task_id, max(0.0, min(ratio, 1.0)))
+
         report = self.candidate_searcher().run(
             Path(srcs[0]) if srcs else Path("."),
             mode=mode,
             ref_paths=refs,
             keyword=str(keyword) if keyword else None,
+            on_progress=on_progress,
             token=getattr(task, "token", None),
         )
+        scored = [t for t in report.targets
+                  if t.status == "ok" and t.scores is not None]
         return TaskResult(summary={
             "overall_score": report.overall_score,
             "unavailable_platforms": report.unavailable_platforms,
+            "targets_ok": len(scored),
+            "targets_local": sum(1 for t in scored if t.source == "local"),
         }, output_path=report.src_path)
 
 

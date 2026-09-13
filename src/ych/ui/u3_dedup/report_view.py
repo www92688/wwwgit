@@ -53,6 +53,24 @@ def _pct(v: float | None) -> str:
     return f"{v:.1f}%" if isinstance(v, (int, float)) else "—"
 
 
+def _source_label(source: str) -> str:
+    from PySide6.QtCore import QCoreApplication
+
+    return {
+        "manual": QCoreApplication.translate("ReportView", "手动"),
+        "auto": QCoreApplication.translate("ReportView", "自动"),
+        "local": QCoreApplication.translate("ReportView", "本地库"),
+    }.get(source, source)
+
+
+def _platform_label(platform_id: str) -> str:
+    if platform_id == "local":
+        from PySide6.QtCore import QCoreApplication
+
+        return QCoreApplication.translate("ReportView", "本地素材库")
+    return platform_id
+
+
 class ReportView(QWidget):
     """render(report, before_pct=None, after_pct=None)。"""
 
@@ -86,6 +104,12 @@ class ReportView(QWidget):
 
         self.compare_label = QLabel(self.tr("处理前 → 处理后：—"))
         root.addWidget(self.compare_label)
+
+        self.note_label = QLabel()
+        self.note_label.setObjectName("muted")
+        self.note_label.setWordWrap(True)
+        self.note_label.hide()
+        root.addWidget(self.note_label)
 
         self.table = QTableWidget(0, 5)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -131,6 +155,35 @@ class ReportView(QWidget):
             )
             self.table.setRowCount(0)
             self.compare_label.setText(self.tr("处理前 → 处理后：—"))
+            self.note_label.hide()
+            return
+
+        scored = [t for t in report.targets
+                  if t.scores is not None and t.status == "ok"]
+        unavailable = list(report.unavailable_platforms or [])
+        if not scored:
+            # 无有效对比对象：0 分会误导（0 分 ≠ 内容原创），明示原因
+            self.overall_label.setText("—%")
+            self.overall_label.setStyleSheet(
+                "font-size:34px; font-weight:600; color:#a5aec0;",
+            )
+            self.dim_comp.bar.setValue(0)
+            self.dim_motion.bar.setValue(0)
+            self.dim_rhythm.bar.setValue(0)
+            if unavailable and "no_keyword" not in unavailable:
+                self.note_label.setText(self.tr(
+                    "未找到可比对的视频：在线平台 {p} 均不可用，本地素材库中"
+                    "也没有同关键词的其它素材。此处的 0 分不代表重复度低。",
+                ).format(p="、".join(unavailable)))
+            else:
+                self.note_label.setText(self.tr(
+                    "未找到可比对的视频：素材不在工作目录归档结构中"
+                    "（需要 大类/关键词/日期/ 文件路径），且没有在线平台可用。"
+                    "此处的 0 分不代表重复度低。",
+                ))
+            self.note_label.show()
+            self.table.setRowCount(0)
+            self.compare_label.setText(self.tr("处理前 → 处理后：—"))
             return
 
         best_dims = report.dims
@@ -150,12 +203,22 @@ class ReportView(QWidget):
         else:
             self.compare_label.setText(self.tr("处理前 → 处理后：—"))
 
+        n_local = sum(1 for t in scored if t.source == "local")
+        if unavailable and "no_keyword" not in unavailable:
+            self.note_label.setText(self.tr(
+                "在线平台 {p} 不可用，以上结果基于其余 {n} 个对比对象"
+                "（其中本地素材库 {m} 个）。",
+            ).format(p="、".join(unavailable), n=len(scored), m=n_local))
+            self.note_label.show()
+        else:
+            self.note_label.hide()
+
         self.table.setRowCount(len(report.targets))
         for i, t in enumerate(report.targets):
-            source = self.tr("手动") if t.source == "manual" else self.tr("自动")
+            source = _source_label(t.source)
             values = [
                 source,
-                t.platform_id or "-",
+                _platform_label(t.platform_id) if t.platform_id else "-",
                 t.title or t.video_key or "-",
                 (f"{t.scores.overall * 100:.1f}"
                  if t.scores is not None else "-"),

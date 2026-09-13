@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
@@ -48,7 +49,10 @@ class Database:
     def connection(self) -> sqlite3.Connection:
         """当前线程的连接（每线程一个，check_same_thread=False）。"""
         conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
-        if conn is None:
+        if conn is not None:
+            return conn
+        last_exc: sqlite3.Error | None = None
+        for attempt in range(3):
             try:
                 if self._path != ":memory:":
                     # sqlite3.connect 不创建父目录；首启 %LOCALAPPDATA%/YuChongGou
@@ -60,14 +64,28 @@ class Database:
                 # 可能撞上其他连接的写锁（无超时即直接 DB001）
                 conn.execute("PRAGMA busy_timeout=5000")
                 if self._path != ":memory:":
+                    # journal_mode 切换在某些争用路径上不进 busy_timeout
+                    # 而是即时 SQLITE_BUSY：小退避重连重试
                     conn.execute("PRAGMA journal_mode=WAL")
                 conn.execute("PRAGMA foreign_keys=ON")
+                break
             except sqlite3.Error as exc:
-                raise AppError(ERR_DB_OPEN_FAILED, "数据库打开失败", cause=exc) from exc
-            self._local.conn = conn
-            self._opened = True
-            # 迁移幂等：user_version 达标即跳过；:memory: 每线程独立库各自建表
-            self._migrate(conn)
+                if conn is not None:
+                    conn.close()
+                    conn = None
+                last_exc = exc
+                msg = str(exc).lower()
+                if ("locked" not in msg and "busy" not in msg) \
+                        or attempt == 2:
+                    break
+                time.sleep(0.05 * (attempt + 1))
+        if conn is None:
+            raise AppError(ERR_DB_OPEN_FAILED, "数据库打开失败",
+                           cause=last_exc) from last_exc
+        self._local.conn = conn
+        self._opened = True
+        # 迁移幂等：user_version 达标即跳过；:memory: 每线程独立库各自建表
+        self._migrate(conn)
         return conn
 
     # ---- 迁移 ----

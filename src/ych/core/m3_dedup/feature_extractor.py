@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +25,8 @@ MAX_FRAMES = 300
 MAX_SHOTS = 32
 
 FEATURE_VERSION = "1"
+
+_CACHE_CAP = 64   # 特征缓存条数上限（短视频特征约占 100KB 级）
 
 
 class CompositionEmbedder:
@@ -75,12 +79,19 @@ class FeatureExtractService:
         self._rhythm = RhythmAnalyzer()
         self._embedder = CompositionEmbedder(provider)
         self._max_frames = max(1, int(max_frames))
+        # (路径, mtime_ns, size) → FeatureSet：对比目标/去重前后重算
+        # 反复抽同一文件代价高；文件被替换时键变化自然失效
+        self._cache: OrderedDict[tuple[str, int, int], FeatureSet] = OrderedDict()
+        self._cache_lock = threading.Lock()
 
     def extract(
         self,
         path: Path,
         token: CancellationToken | None = None,
     ) -> FeatureSet:
+        cached = self._cache_get(path)
+        if cached is not None:
+            return cached
         info = self._prober.probe(path)
         duration = max(info.duration_s, 1e-6)
         fps = SAMPLE_FPS
@@ -101,7 +112,7 @@ class FeatureExtractService:
 
         logger.info("特征提取 %s：镜头=%d 边界=%s", path.name,
                     len(shots), boundaries)
-        return FeatureSet(
+        feat = FeatureSet(
             composition=composition,
             shot_mid_ts=mid_ts,
             motion_curve=motion_curve,
@@ -110,4 +121,34 @@ class FeatureExtractService:
             duration_s=duration,
             version=FEATURE_VERSION,
         )
+        self._cache_put(path, feat)
+        return feat
+
+    # ---- 特征缓存 ----
+    def _cache_key(self, path: Path) -> tuple[str, int, int] | None:
+        try:
+            st = Path(path).stat()
+        except OSError:
+            return None
+        return (str(Path(path).resolve()), st.st_mtime_ns, st.st_size)
+
+    def _cache_get(self, path: Path) -> FeatureSet | None:
+        key = self._cache_key(path)
+        if key is None:
+            return None
+        with self._cache_lock:
+            feat = self._cache.get(key)
+            if feat is not None:
+                self._cache.move_to_end(key)
+            return feat
+
+    def _cache_put(self, path: Path, feat: FeatureSet) -> None:
+        key = self._cache_key(path)
+        if key is None:
+            return
+        with self._cache_lock:
+            self._cache[key] = feat
+            self._cache.move_to_end(key)
+            while len(self._cache) > _CACHE_CAP:
+                self._cache.popitem(last=False)
 

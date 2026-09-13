@@ -242,163 +242,239 @@
 <context>
     <name>DedupPage</name>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="195" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="375" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="301" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="522" />
         <source>左侧勾选素材</source>
         <translation type="finished">左侧勾选素材</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="196" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="376" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="302" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="523" />
         <source>「分析重复度」后选方案（轻/中/重度或自定义）</source>
         <translation type="finished">「分析重复度」后选方案（轻/中/重度或自定义）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="197" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="377" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="303" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="524" />
         <source>「开始去重」提交</source>
         <translation type="finished">「开始去重」提交</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="82" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="379" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="185" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="526" />
         <source>待去重素材</source>
         <translation type="finished">待去重素材</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="86" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="383" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="189" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="530" />
         <source>暂无素材</source>
         <translation type="finished">暂无素材</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="87" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="384" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="190" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="531" />
         <source>先到「采集工作台」下载素材，
 或把视频文件放入工作目录</source>
         <translation type="finished">先到「采集工作台」下载素材，
 或把视频文件放入工作目录</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="90" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="381" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="193" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="528" />
         <source>全选</source>
         <translation type="finished">全选</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="98" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="380" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="201" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="527" />
         <source>去重方案</source>
         <translation type="finished">去重方案</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="256" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="362" />
         <source>打开文件管理器失败</source>
         <translation type="finished">打开文件管理器失败</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="267" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="373" />
         <source>打开失败：文件不存在或系统没有关联的播放器</source>
         <translation type="finished">打开失败：文件不存在或系统没有关联的播放器</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="285" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="397" />
+        <source>重新生成去重输出</source>
+        <translation type="finished">重新生成去重输出</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="399" />
+        <source>将删除「已去重」目录下 {n} 个同名输出文件，并按当前方案重新去重。继续？</source>
+        <translation type="finished">将删除「已去重」目录下 {n} 个同名输出文件，并按当前方案重新去重。继续？</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="416" />
+        <source>删除旧输出失败：{msgs}</source>
+        <translation type="finished">删除旧输出失败：{msgs}</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="432" />
         <source>轻度</source>
         <translation type="finished">轻度</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="285" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="432" />
         <source>中度</source>
         <translation type="finished">中度</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="286" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="433" />
         <source>重度</source>
         <translation type="finished">重度</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="290" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="437" />
         <source>保守调整：轻度镜像/微裁切/轻调色，画质损失最小</source>
         <translation type="finished">保守调整：轻度镜像/微裁切/轻调色，画质损失最小</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="291" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="438" />
         <source>多手法组合：推荐日常使用，重复度下降明显</source>
         <translation type="finished">多手法组合：推荐日常使用，重复度下降明显</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="292" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="439" />
         <source>强力规避：全部手法叠加，适合重复度很高的素材</source>
         <translation type="finished">强力规避：全部手法叠加，适合重复度很高的素材</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="300" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="447" />
         <source>（推荐档）</source>
         <translation type="finished">（推荐档）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="341" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="488" />
         <source>请先在左侧勾选素材，再分析重复度</source>
         <translation type="finished">请先在左侧勾选素材，再分析重复度</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="353" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="500" />
         <source>请先在左侧勾选素材，再开始去重</source>
         <translation type="finished">请先在左侧勾选素材，再开始去重</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="368" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="515" />
         <source>该批任务已提交，请勿重复点击</source>
         <translation type="finished">该批任务已提交，请勿重复点击</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="141" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="388" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="244" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="535" />
         <source>套用预设</source>
         <translation type="finished">套用预设</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="144" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="389" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="247" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="536" />
         <source>预设→自定义微调</source>
         <translation type="finished">预设→自定义微调</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="152" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="207" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="255" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="313" />
         <source>分析重复度</source>
         <translation type="finished">Analyze duplicates</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="154" />
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="210" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="257" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="316" />
         <source>开始去重</source>
         <translation type="finished">Start Dedup</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="207" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="313" />
         <source>分析重复度（{}）</source>
         <translation type="finished">分析重复度（{}）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="210" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="316" />
         <source>开始去重（{}）</source>
         <translation type="finished">开始去重（{}）</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="248" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="354" />
         <source>打开所在文件夹</source>
         <translation type="finished">打开所在文件夹</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="249" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="355" />
         <source>复制路径</source>
         <translation type="finished">复制路径</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="250" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="356" />
         <source>用系统播放器打开</source>
         <translation type="finished">用系统播放器打开</translation>
+    </message>
+</context>
+<context>
+    <name>DedupResultBar</name>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="67" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="143" />
+        <source>打开输出目录</source>
+        <translation type="finished">打开输出目录</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="70" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="144" />
+        <source>重新生成</source>
+        <translation type="finished">重新生成</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="73" />
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="146" />
+        <source>删除「已去重」目录下的同名输出文件，并按当前勾选素材与方案重新去重</source>
+        <translation type="finished">删除「已去重」目录下的同名输出文件，并按当前勾选素材与方案重新去重</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="111" />
+        <source>成功 {n} 条</source>
+        <translation type="finished">成功 {n} 条</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="113" />
+        <source>跳过 {n} 条</source>
+        <translation type="finished">跳过 {n} 条</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="115" />
+        <source>失败 {n} 条</source>
+        <translation type="finished">失败 {n} 条</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="120" />
+        <source> 等 {n} 个</source>
+        <translation type="finished"> 等 {n} 个</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="121" />
+        <source>已存在未重处理：{names}</source>
+        <translation type="finished">已存在未重处理：{names}</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="123" />
+        <source>失败原因：{msgs}</source>
+        <translation type="finished">失败原因：{msgs}</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="128" />
+        <source>重复度 {a}% → {b}%</source>
+        <translation type="finished">重复度 {a}% → {b}%</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/dedup_page.py" line="139" />
+        <source>打开失败：目录不存在或无法访问</source>
+        <translation type="finished">打开失败：目录不存在或无法访问</translation>
     </message>
 </context>
 <context>
@@ -1147,73 +1223,99 @@
 <context>
     <name>ReportView</name>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="72" />
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="111" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="62" />
+        <source>本地库</source>
+        <translation type="finished">本地库</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="70" />
+        <source>本地素材库</source>
+        <translation type="finished">本地素材库</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="90" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="135" />
         <source>综合重复度</source>
         <translation type="finished">综合重复度</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="79" />
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="112" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="97" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="136" />
         <source>构图</source>
         <translation type="finished">构图</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="80" />
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="113" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="98" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="137" />
         <source>运镜</source>
         <translation type="finished">运镜</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="81" />
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="114" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="99" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="138" />
         <source>节奏</source>
         <translation type="finished">节奏</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="87" />
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="133" />
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="151" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="105" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="157" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="186" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="204" />
         <source>处理前 → 处理后：—</source>
         <translation type="finished">处理前 → 处理后：—</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="105" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="129" />
         <source>来源</source>
         <translation type="finished">来源</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="105" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="129" />
         <source>平台</source>
         <translation type="finished">平台</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="105" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="129" />
         <source>标题</source>
         <translation type="finished">标题</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="106" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="130" />
         <source>相似度%</source>
         <translation type="finished">相似度%</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="106" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="130" />
         <source>状态</source>
         <translation type="finished">状态</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="148" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="175" />
+        <source>未找到可比对的视频：在线平台 {p} 均不可用，本地素材库中也没有同关键词的其它素材。此处的 0 分不代表重复度低。</source>
+        <translation type="finished">未找到可比对的视频：在线平台 {p} 均不可用，本地素材库中也没有同关键词的其它素材。此处的 0 分不代表重复度低。</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="180" />
+        <source>未找到可比对的视频：素材不在工作目录归档结构中（需要 大类/关键词/日期/ 文件路径），且没有在线平台可用。此处的 0 分不代表重复度低。</source>
+        <translation type="finished">未找到可比对的视频：素材不在工作目录归档结构中（需要 大类/关键词/日期/ 文件路径），且没有在线平台可用。此处的 0 分不代表重复度低。</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="201" />
         <source>处理前 → 处理后：{a} → {b}</source>
         <translation type="finished">处理前 → 处理后：{a} → {b}</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="155" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="209" />
+        <source>在线平台 {p} 不可用，以上结果基于其余 {n} 个对比对象（其中本地素材库 {m} 个）。</source>
+        <translation type="finished">在线平台 {p} 不可用，以上结果基于其余 {n} 个对比对象（其中本地素材库 {m} 个）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="60" />
         <source>手动</source>
         <translation type="finished">手动</translation>
     </message>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="155" />
+        <location filename="../src/ych/ui/u3_dedup/report_view.py" line="61" />
         <source>自动</source>
         <translation type="finished">自动</translation>
     </message>
@@ -1308,8 +1410,8 @@
 <context>
     <name>SchemeEditor</name>
     <message>
-        <location filename="../src/ych/ui/u3_dedup/scheme_editor.py" line="24" />
-        <location filename="../src/ych/ui/u3_dedup/scheme_editor.py" line="36" />
+        <location filename="../src/ych/ui/u3_dedup/scheme_editor.py" line="25" />
+        <location filename="../src/ych/ui/u3_dedup/scheme_editor.py" line="44" />
         <source>方案参数</source>
         <translation type="finished">方案参数</translation>
     </message>
@@ -1942,24 +2044,61 @@
         <translation type="finished">重复度分析</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="258" />
+        <location filename="../src/ych/app.py" line="250" />
+        <source> 等 {n} 个</source>
+        <translation type="finished"> 等 {n} 个</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/app.py" line="263" />
+        <source>输出已存在，未重新处理：{names}
+如需重新生成，请删除「已去重」目录下的同名文件</source>
+        <translation type="finished">输出已存在，未重新处理：{names}
+如需重新生成，请删除「已去重」目录下的同名文件</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/app.py" line="274" />
+        <source>，跳过 {n} 条（{names} 已存在）</source>
+        <translation type="finished">，跳过 {n} 条（{names} 已存在）</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/app.py" line="277" />
+        <source>，跳过 {n} 条</source>
+        <translation type="finished">，跳过 {n} 条</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/app.py" line="279" />
+        <source>，失败 {n} 条：{msgs}</source>
+        <translation type="finished">，失败 {n} 条：{msgs}</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/app.py" line="296" />
         <source>，{word} {count} 条</source>
         <translation type="finished">，{word} {count} 条</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="259" />
+        <location filename="../src/ych/app.py" line="297" />
         <source>失败</source>
         <translation type="finished">失败</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="260" />
+        <location filename="../src/ych/app.py" line="298" />
         <source>跳过</source>
         <translation type="finished">跳过</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="265" />
+        <location filename="../src/ych/app.py" line="303" />
         <source>预处理完成：成功 {n} 条{extra}；输出与原文件同目录（_cleaned 后缀）</source>
         <translation type="finished">预处理完成：成功 {n} 条{extra}；输出与原文件同目录（_cleaned 后缀）</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/app.py" line="319" />
+        <source>重复度分析完成：最高相似度 {score}%，对比 {n} 个视频（本地素材库 {local}、在线平台 {online}），已按结果标注推荐档位</source>
+        <translation type="finished">重复度分析完成：最高相似度 {score}%，对比 {n} 个视频（本地素材库 {local}、在线平台 {online}），已按结果标注推荐档位</translation>
+    </message>
+    <message>
+        <location filename="../src/ych/app.py" line="328" />
+        <source>重复度分析完成：没有可比对的视频（在线平台均不可用，本地素材库也没有同关键词的其它素材）。0 分不代表重复度低</source>
+        <translation type="finished">重复度分析完成：没有可比对的视频（在线平台均不可用，本地素材库也没有同关键词的其它素材）。0 分不代表重复度低</translation>
     </message>
     <message>
         <location filename="../src/ych/app.py" line="271" />
@@ -1967,27 +2106,26 @@
         <translation type="finished">；重复度 {a}% → {b}%</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="275" />
+        <location filename="../src/ych/app.py" line="282" />
         <source>去重完成：成功 {n} 条{extra}{tail}；输出在 已去重/ 目录</source>
         <translation type="finished">去重完成：成功 {n} 条{extra}{tail}；输出在 已去重/ 目录</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="284" />
         <source>重复度分析完成{extra}，已按结果标注推荐档位</source>
         <translation type="finished">重复度分析完成{extra}，已按结果标注推荐档位</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="287" />
+        <location filename="../src/ych/app.py" line="333" />
         <source>。可到 设置 → AI 模型 下载所需模型</source>
         <translation type="finished">。可到 设置 → AI 模型 下载所需模型</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="289" />
+        <location filename="../src/ych/app.py" line="335" />
         <source>{label}失败：{msg}{extra}</source>
         <translation type="finished">{label}失败：{msg}{extra}</translation>
     </message>
     <message>
-        <location filename="../src/ych/app.py" line="293" />
+        <location filename="../src/ych/app.py" line="339" />
         <source>{label}任务已取消</source>
         <translation type="finished">{label}任务已取消</translation>
     </message>

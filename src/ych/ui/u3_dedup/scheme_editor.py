@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QLabel,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -25,7 +26,15 @@ class SchemeEditor(QGroupBox):
         self._registry = registry
         self._items: list[dict[str, object]] = []
         self._widgets: dict[str, dict[str, QWidget]] = {}
-        self.setLayout(QVBoxLayout(self))
+        # 表单放进常驻滚动容器：重度预设 5 手法 13+ 行远超右侧栏可用高度，
+        # 布局被压缩时行会互相叠压（高分屏下尤其严重），空间不足必须滚动
+        self._scroll = QScrollArea(self)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        box = QVBoxLayout(self)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(self._scroll)
+        self.setLayout(box)
         self.set_items([])
 
     def retranslate(self) -> None:
@@ -43,18 +52,13 @@ class SchemeEditor(QGroupBox):
              "params": dict(i["params"] or {})}   # type: ignore[call-overload]
             for i in items
         ]
-        layout = self.layout()
-        assert layout is not None
-        while layout.count():
-            item = layout.takeAt(0)
-            widget = item.widget() if item is not None else None
-            if widget is not None:
-                widget.deleteLater()
         self._widgets.clear()
 
         form_box = QWidget(self)
         form = QFormLayout(form_box)
-        form.setContentsMargins(0, 0, 0, 0)
+        form.setContentsMargins(12, 4, 12, 8)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(8)
         for tid, params in ((str(it["id"]), it["params"]) for it in self._items):
             technique = self._registry.get(tid)
             if technique is None:
@@ -70,7 +74,10 @@ class SchemeEditor(QGroupBox):
                 form.addRow(self.tr(field_def.label_zh), editor)
                 editors[field_def.key] = editor
             self._widgets[tid] = editors
-        layout.addWidget(form_box)
+        old = self._scroll.takeWidget()
+        if old is not None:
+            old.deleteLater()
+        self._scroll.setWidget(form_box)
 
     @staticmethod
     def _editor_for(field_def: ParamField, value: object) -> QWidget:

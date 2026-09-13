@@ -29,6 +29,22 @@ EN: dict[tuple[str, str], str] = {
     ("DedupPage", "打开失败：文件不存在或系统没有关联的播放器"):
         "Failed to open: the file does not exist or no player is "
         "associated with it",
+    ("DedupResultBar", "打开输出目录"): "Open output folder",
+    ("DedupResultBar", "去重结果"): "Dedup result",
+    ("DedupResultBar", "成功 {n} 条"): "{n} succeeded",
+    ("DedupResultBar", "跳过 {n} 条"): "{n} skipped",
+    ("DedupResultBar", "失败 {n} 条"): "{n} failed",
+    ("DedupResultBar", " 等 {n} 个"): " and {n} more",
+    ("DedupResultBar", "已存在未重处理：{names}"):
+        "Already existed (not reprocessed): {names}",
+    ("DedupResultBar", "失败原因：{msgs}"): "Failure reason: {msgs}",
+    ("DedupResultBar", "重复度 {a}% → {b}%"): "Similarity {a}% → {b}%",
+    ("DedupResultBar", "打开失败：目录不存在或无法访问"):
+        "Failed to open: the folder does not exist or is inaccessible",
+    ("DedupResultBar", "重新生成"): "Regenerate",
+    ("DedupResultBar", "删除「已去重」目录下的同名输出文件，并按当前勾选素材与方案重新去重"):
+        "Delete the existing output files of the same names in the 已去重/ "
+        "folder and dedup again with the current scheme",
     ("FailRecordModel", "文件名"): "File name",
     ("DedupPage", "轻度"): "Light",
     ("DedupPage", "中度"): "Medium",
@@ -38,6 +54,13 @@ EN: dict[tuple[str, str], str] = {
         "Select assets on the left before analyzing duplicates",
     ("DedupPage", "请先在左侧勾选素材，再开始去重"):
         "Select assets on the left before starting dedup",
+    ("DedupPage", "重新生成去重输出"): "Regenerate dedup output",
+    ("DedupPage", "将删除「已去重」目录下 {n} 个同名输出文件，并按当前方案重新去重。继续？"):
+        "{n} output file(s) of the same names will be deleted from the "
+        "已去重/ folder and deduplicated again with the current scheme. "
+        "Continue?",
+    ("DedupPage", "删除旧输出失败：{msgs}"):
+        "Failed to delete the old output: {msgs}",
     ("FailurePage", "读取失败记录出错：{msg}"):
         "Failed to read the failure records: {msg}",
     ("FailurePage", "已重新提交 {n} 条，{m} 条失败：{detail}"):
@@ -138,6 +161,25 @@ EN: dict[tuple[str, str], str] = {
     ("ReportView", "处理前 → 处理后：{a} → {b}"): "Before → after: {a} → {b}",
     ("ReportView", "手动"): "Manual",
     ("ReportView", "自动"): "Auto",
+    ("ReportView", "本地库"): "Local",
+    ("ReportView", "本地素材库"): "Local library",
+    ("ReportView",
+     "未找到可比对的视频：在线平台 {p} 均不可用，本地素材库中也没有同关键词的"
+     "其它素材。此处的 0 分不代表重复度低。"):
+        "No comparable videos found: online platforms ({p}) are all "
+        "unavailable, and the local library has no other videos with the "
+        "same keyword. The 0 score here does NOT mean low similarity.",
+    ("ReportView",
+     "未找到可比对的视频：素材不在工作目录归档结构中（需要 大类/关键词/日期/ "
+     "文件路径），且没有在线平台可用。此处的 0 分不代表重复度低。"):
+        "No comparable videos found: the file is not in the workdir archive "
+        "layout (category/keyword/date/filename) and no online platform is "
+        "available. The 0 score here does NOT mean low similarity.",
+    ("ReportView",
+     "在线平台 {p} 不可用，以上结果基于其余 {n} 个对比对象"
+     "（其中本地素材库 {m} 个）。"):
+        "Online platforms {p} are unavailable; the results above are based "
+        "on the other {n} targets ({m} from the local library).",
     ("ResultList", "大小未知"): "size unknown",
     ("ResultList", "全选"): "Select all",
     ("ResultList", "下载选中"): "Download selected",
@@ -190,9 +232,27 @@ EN: dict[tuple[str, str], str] = {
     ("_Bridge", "去重完成：成功 {n} 条{extra}{tail}；输出在 已去重/ 目录"):
         "Dedup completed: {n} succeeded{extra}{tail}; output is in the "
         "已去重/ folder",
-    ("_Bridge", "重复度分析完成{extra}，已按结果标注推荐档位"):
-        "Duplicate analysis finished{extra}; the recommended preset has been "
-        "marked based on the result",
+    ("_Bridge", "输出已存在，未重新处理：{names}\n"
+     "如需重新生成，请删除「已去重」目录下的同名文件"):
+        "Output already exists; not reprocessed: {names}\n"
+        "To regenerate, delete the file of the same name in the 已去重/ folder",
+    ("_Bridge", " 等 {n} 个"): " and {n} more",
+    ("_Bridge", "，跳过 {n} 条（{names} 已存在）"):
+        ", {n} skipped ({names} already exist)",
+    ("_Bridge", "，跳过 {n} 条"): ", {n} skipped",
+    ("_Bridge", "，失败 {n} 条：{msgs}"): ", {n} failed: {msgs}",
+    ("_Bridge",
+     "重复度分析完成：最高相似度 {score}%，对比 {n} 个视频"
+     "（本地素材库 {local}、在线平台 {online}），已按结果标注推荐档位"):
+        "Duplicate analysis finished: highest similarity {score}% across "
+        "{n} targets ({local} local, {online} online); the recommended "
+        "preset has been marked based on the result",
+    ("_Bridge",
+     "重复度分析完成：没有可比对的视频（在线平台均不可用，本地素材库也没有"
+     "同关键词的其它素材）。0 分不代表重复度低"):
+        "Duplicate analysis finished: no comparable videos (online platforms "
+        "are all unavailable and the local library has no other videos with "
+        "the same keyword). The 0 score does NOT mean low similarity",
     ("_Bridge", "。可到 设置 → AI 模型 下载所需模型"):
         ". Download the required models in Settings → AI Models",
     ("_Bridge", "{label}失败：{msg}{extra}"): "{label} failed: {msg}{extra}",
