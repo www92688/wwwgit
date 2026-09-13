@@ -179,7 +179,8 @@ class CandidateSearcher:
         for p in self._compare_plugins():
             try:
                 ok, _reason = self._plugins.availability(p)
-            except Exception:
+            except Exception as exc:
+                logger.warning("平台 %s 可用性检查失败：%s", p.id, exc)
                 ok, _reason = False, ERR_PLG_UNAVAILABLE
             if not ok:
                 unavailable.append(p.id)

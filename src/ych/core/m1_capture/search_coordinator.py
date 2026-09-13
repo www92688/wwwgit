@@ -56,6 +56,11 @@ class SearchCoordinator(QObject):
 
         platform_ids 非空时只搜索勾选的平台（None=全部启用平台）。
         """
+        if self._worker is not None and self._worker.is_alive():
+            # 上一轮搜索线程还在跑：拒绝重入（UI 层有 _searching 防抖，
+            # 此为核心层兜底——否则两轮线程并发 emit，结果会交错污染列表）
+            logger.warning("上一轮搜索尚未结束，本次 search_multi 调用被忽略")
+            return
         regions: list[Region] = [region] if region is not None else ["cn", "global"]
         worker = threading.Thread(
             target=self._run,

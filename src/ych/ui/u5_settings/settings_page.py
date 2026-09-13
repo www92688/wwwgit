@@ -2,6 +2,7 @@
 # 服务区为 CC Switch 式交互：列表页展示"用哪个"，添加/编辑跳转独立配置页。
 from __future__ import annotations
 
+import contextlib
 import logging
 import uuid
 from pathlib import Path
@@ -366,7 +367,7 @@ class SettingsPage(QWidget):
         )
         self._refresh_model_rows()
         worker = LlmWorker(lambda: dl.download(key, token))
-        self._model_workers.append(worker)
+        self._track_worker(self._model_workers, worker)
         self._worker_keys[worker] = key
         worker.done.connect(self._on_model_done)        # 绑定方法→回 UI 线程
         worker.failed.connect(self._on_model_failed)
@@ -692,6 +693,16 @@ class SettingsPage(QWidget):
         self.ai_name_edit.setText(name)
         self.ai_base_edit.setText(base_url)
 
+    def _track_worker(self, bucket: list[LlmWorker], worker: LlmWorker) -> None:
+        """持引用防 GC 断连；finished 后移除（长会话引用泄漏 + 误用已删对象）。"""
+        bucket.append(worker)
+
+        def _cleanup() -> None:
+            with contextlib.suppress(ValueError):
+                bucket.remove(worker)
+
+        worker.finished.connect(_cleanup)
+
     def _save_ai_edit(self) -> None:
         base_url = self.ai_base_edit.text().strip()
         if not base_url:
@@ -744,7 +755,7 @@ class SettingsPage(QWidget):
             ))
 
         worker = LlmWorker(_task)
-        self._ai_workers.append(worker)
+        self._track_worker(self._ai_workers, worker)
 
         def _done(models: object) -> None:
             self.ai_fetch_btn.setEnabled(True)
@@ -874,7 +885,7 @@ class SettingsPage(QWidget):
         self.proxy_status.setText(self.tr("检测中：正在探测系统代理与常见端口…"))
         self.proxy_status.setStyleSheet(f"color: {_GRAY};")
         worker = LlmWorker(detect_local_proxy)
-        self._ai_workers.append(worker)
+        self._track_worker(self._ai_workers, worker)
         worker.done.connect(self._on_proxy_detected)
         worker.failed.connect(self._on_proxy_detect_failed)
         worker.finished.connect(worker.deleteLater)

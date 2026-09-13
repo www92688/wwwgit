@@ -291,7 +291,10 @@ class PreprocessPage(QWidget):
         act_copy = menu.addAction(self.tr("复制路径"))
         chosen = menu.exec(self.asset_tree.viewport().mapToGlobal(pos))
         if chosen is act_reveal:
-            reveal_in_file_manager(str(src))
+            if not reveal_in_file_manager(str(src)):
+                Toast.show_message(
+                    self, self.tr("打开文件管理器失败"), error=True,
+                )
         elif chosen is act_copy:
             copy_to_clipboard(str(src))
 

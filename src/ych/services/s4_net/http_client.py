@@ -78,7 +78,11 @@ class HttpClient(QObject):
 
     def _on_config_changed(self, key: str, _value: object) -> None:
         if key in ("proxy_enabled", "proxy_host", "proxy_port"):
-            self._apply_proxy()
+            # 重建全新会话整体替换：requests.Session 非严格线程安全，
+            # 在运行中的共享会话上热改 proxies 有竞态；旧会话由在途
+            # 请求自然收尾后回收
+            self._session = self._build_session()
+            logger.info("网络会话已按新代理配置重建")
 
     def _apply_proxy(self, session: requests.Session | None = None) -> None:
         """代理配置 → session；__init__ 传入新会话，运行时改动复用现有会话。"""

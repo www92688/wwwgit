@@ -2,6 +2,7 @@
 # 所有网络 IO 在 LlmWorker 后台线程执行——严禁阻塞 GUI 线程（旧版假死根因）。
 from __future__ import annotations
 
+import contextlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -114,6 +115,16 @@ class NetCheckDialog(QDialog):
         self.start_ip_query()
 
     # ---- 网站测试 ----
+    def _track(self, worker: LlmWorker) -> None:
+        """持引用防 GC 断连；finished 后移除（防长会话泄漏）。"""
+        self._workers.append(worker)
+
+        def _cleanup() -> None:
+            with contextlib.suppress(ValueError):
+                self._workers.remove(worker)
+
+        worker.finished.connect(_cleanup)
+
     def start_site_test(self) -> None:
         self.btn_sites.setEnabled(False)
         self.conclusion_label.setText(self.tr("测试中…"))
@@ -134,7 +145,7 @@ class NetCheckDialog(QDialog):
             return results
 
         worker = LlmWorker(_task)
-        self._workers.append(worker)
+        self._track(worker)
         worker.done.connect(self._on_sites_done)
         worker.failed.connect(self._on_sites_failed)
         worker.finished.connect(worker.deleteLater)
@@ -181,7 +192,7 @@ class NetCheckDialog(QDialog):
             lb.setStyleSheet(f"color: {_GRAY};")
 
         worker = LlmWorker(lambda: fetch_ip_info(self._http))
-        self._workers.append(worker)
+        self._track(worker)
         worker.done.connect(self._on_ip_done)
         worker.failed.connect(self._on_ip_failed)
         worker.finished.connect(worker.deleteLater)

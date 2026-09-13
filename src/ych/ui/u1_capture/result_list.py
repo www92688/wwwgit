@@ -260,11 +260,16 @@ class ResultList(QWidget):
 
         data = item.data(Qt.ItemDataRole.UserRole)
         if not isinstance(data, VideoMeta):
+            # 「暂不可用平台」等备注行不可打开：提示而非静默
+            Toast.show_message(self, self.tr("该行不可打开来源页"))
             return
         if not data.page_url:
             Toast.show_message(self, self.tr("该素材没有来源页链接"))
             return
-        QDesktopServices.openUrl(QUrl(data.page_url))
+        if not QDesktopServices.openUrl(QUrl(data.page_url)):
+            Toast.show_message(
+                self, self.tr("打开浏览器失败"), error=True,
+            )
 
     def _toggle_all(self, checked: bool) -> None:
         state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked

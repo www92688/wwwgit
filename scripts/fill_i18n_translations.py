@@ -22,6 +22,8 @@ EN: dict[tuple[str, str], str] = {
     ("CapturePage", "文件定位功能未装配"): "File locator is not available",
     ("CapturePage", "外网检测失败：{msg}"): "Foreign network check failed: {msg}",
     ("CapturePage", "搜索发起失败：{msg}"): "Failed to start the search: {msg}",
+    ("CapturePage", "打开文件管理器失败"): "Failed to open the file manager",
+    ("DedupPage", "打开文件管理器失败"): "Failed to open the file manager",
     ("DedupPage", "该批任务已提交，请勿重复点击"):
         "This batch has been submitted; no need to click again",
     ("DedupPage", "打开失败：文件不存在或系统没有关联的播放器"):
@@ -148,6 +150,10 @@ EN: dict[tuple[str, str], str] = {
     ("ResultList", "时长 {d}s"): "{d}s",
     ("ResultList", "下载选中（{}）"): "Download selected ({})",
     ("ResultList", "该素材没有来源页链接"): "This asset has no source page link",
+    ("ResultList", "该行不可打开来源页"): "This row has no source page to open",
+    ("ResultList", "打开浏览器失败"): "Failed to open the browser",
+    ("PlayerWidget", "文件不存在：{path}"): "File not found: {path}",
+    ("PreprocessPage", "打开文件管理器失败"): "Failed to open the file manager",
     ("ResultList", "请先勾选要下载的结果"): "Check the results to download first",
     ("SchemeEditor", "方案参数"): "Scheme Parameters",
     ("SettingsPage", "启用代理"): "Enable proxy",

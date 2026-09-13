@@ -7,9 +7,14 @@ from ych.services.s5_base.i18n_service import I18nService
 
 @pytest.fixture(scope="module")
 def qcoreapp() -> QCoreApplication:
-    app = QCoreApplication.instance()
+    # 必须创建 QApplication 而非裸 QCoreApplication：若本 fixture 先建了
+    # 裸 QCoreApplication，后续 pytest-qt 再建 QApplication 会直接致命
+    # （历史地雷：单跑 s5_base + ui 目录时进程段错误）
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
     if app is None:
-        app = QCoreApplication([])
+        app = QApplication([])
     return app
 
 

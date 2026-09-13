@@ -36,6 +36,9 @@ class Database:
         self._opened = False
         self._local = threading.local()
         self._write_lock = threading.Lock()
+        # 迁移专用锁：两线程同时首连时串行化建表（与 _write_lock 无嵌套，
+        # 不会死锁）
+        self._migrate_lock = threading.Lock()
 
     @property
     def path(self) -> str:
@@ -68,13 +71,14 @@ class Database:
     # ---- 迁移 ----
     def _migrate(self, conn: sqlite3.Connection) -> None:
         try:
-            row = conn.execute("PRAGMA user_version").fetchone()
-            current = int(row[0])
-            for version, script in MIGRATIONS:
-                if version > current:
-                    conn.executescript(script)
-                    conn.execute(f"PRAGMA user_version = {version}")
-                    conn.commit()
+            with self._migrate_lock:
+                row = conn.execute("PRAGMA user_version").fetchone()
+                current = int(row[0])
+                for version, script in MIGRATIONS:
+                    if version > current:
+                        conn.executescript(script)
+                        conn.execute(f"PRAGMA user_version = {version}")
+                        conn.commit()
         except (sqlite3.Error, ValueError) as exc:
             raise AppError(ERR_DB_MIGRATION_FAILED, "数据库迁移失败", cause=exc) from exc
 

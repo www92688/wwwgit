@@ -232,3 +232,53 @@ def test_dedup_empty_selection_toasts(qtbot: Any,
     assert isinstance(page.asset_list, QListWidget)
     page._emit_dedup()        # 空选 → Toast，不抛错
     assert spy.texts()
+
+
+# ---------- 第二轮加固 ----------
+def test_player_missing_file_gives_feedback(qtbot: Any) -> None:
+    """播放不存在的文件：不进解码器，占位文本/错误信号必有其一。"""
+    from ych.ui.u6_common.player_widget import PlayerWidget
+
+    page = PlayerWidget()
+    qtbot.addWidget(page)
+    errs: list[str] = []
+    page.playback_error.connect(errs.append)
+    page.play("Z:/no/such/file.mp4")
+    assert errs or page._fallback.text() != page.tr("预览不可用")
+    page.play(None)           # None → stop，不抛错
+
+
+def test_reveal_failure_returns_false(
+    qtbot: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Any,
+) -> None:
+    """文件夹定位失败必须返回 False（调用方据此 Toast）。"""
+    import ych.ui.u6_common.context_actions as ca
+
+    target = tmp_path / "a.mp4"
+    target.write_bytes(b"x")   # 需真实存在才走 Windows /select 分支
+
+    monkeypatch.setattr(ca.QProcess, "startDetached",
+                        lambda *a, **k: False)
+    assert ca.reveal_in_file_manager(str(target)) is False
+
+    monkeypatch.setattr(ca.QProcess, "startDetached",
+                        lambda *a, **k: True)
+    assert ca.reveal_in_file_manager(str(target)) is True
+
+
+def test_resultlist_note_row_double_click_toasts(
+    qtbot: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """双击「暂不可用平台」备注行：提示而非静默。"""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QListWidgetItem
+
+    from ych.ui.u1_capture.result_list import ResultList
+
+    spy = _ToastSpy(monkeypatch)
+    page = ResultList()
+    qtbot.addWidget(page)
+    note = QListWidgetItem("暂不可用平台：xxx")
+    note.setData(Qt.ItemDataRole.UserRole, "note-row")
+    page._open_source_page(note)
+    assert any("不可打开" in t for t in spy.texts())

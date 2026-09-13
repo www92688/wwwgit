@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import uuid
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 from ych.common.cancellation import CancellationToken, SkippedSignal, TaskCanceled
 from ych.common.errors import ERR_TASK_NOT_FOUND, AppError
@@ -87,7 +88,15 @@ class TaskWorker(QRunnable):
                 logger.info("task %s 将在 %ss 后第 %d 次重试",
                             task.task_id, delay, task.retry_count)
                 retrying = True
-                sched._retry_requested.emit(task, delay)
+                # 退避在 worker 侧等待：可被取消打断，且不依赖主线程
+                # 事件循环（QTimer 方案在事件循环停止时任务会永久卡 running）
+                sched._backoff_wait(task, delay)
+                if task.token.cancelled:
+                    retrying = False   # 取消是终态，需计入批次完成数
+                    sched._finish(task, "canceled", message="任务已被取消")
+                else:
+                    task.state = "pending"
+                    sched._dispatch(task)
                 return
             sched._finish(task, "failed", message=str(exc),
                           error_code=code, err=exc)
@@ -109,7 +118,6 @@ class TaskScheduler(QObject):
     download_row_registered = Signal(int, str, str)   # row_id, platform, title
     # task_id, type, state, message, summary（终态反馈；UI 按类型路由）
     task_done = Signal(str, str, str, str, object)
-    _retry_requested = Signal(object, float)     # ManagedTask, 退避秒数（跨线程排队回主循环）
 
     def __init__(
         self,
@@ -131,7 +139,6 @@ class TaskScheduler(QObject):
         self._retry = RetryController(config)
         self._fails = FailRecordManager(daos.fails)
         self._recovery = CrashRecovery(daos, workdir_provider)
-        self._retry_requested.connect(self._do_resubmit)
         self._batch_done: dict[str, int] = defaultdict(int)
         self._batch_total: dict[str, int] = defaultdict(int)
         self._batch_lock = threading.Lock()
@@ -175,17 +182,14 @@ class TaskScheduler(QObject):
             return
         self._pool.start(TaskWorker(self, task), priority)
 
-    def _do_resubmit(self, task: object, delay: float = 0.0) -> None:
-        assert isinstance(task, ManagedTask)
-        # 指数退避在主线程经 QTimer 延迟重投（信号跨线程已排队到主循环）
-        if delay > 0:
-            QTimer.singleShot(int(delay * 1000), lambda: self._resubmit(task))
-        else:
-            self._resubmit(task)
-
-    def _resubmit(self, task: ManagedTask) -> None:
-        task.state = "pending"
-        self._dispatch(task)
+    def _backoff_wait(self, task: ManagedTask, delay: float) -> None:
+        """重试退避：工作线程内分片睡眠，取消即刻返回。"""
+        deadline = time.monotonic() + max(0.0, delay)
+        while not task.token.cancelled:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(0.1, remaining))
 
     # ---- 取消 ----
     def cancel(self, task_id: str) -> None:

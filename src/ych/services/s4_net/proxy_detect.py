@@ -3,9 +3,12 @@
 # 检测含阻塞网络 IO，仅限后台线程调用。
 from __future__ import annotations
 
+import logging
 import urllib.request
 from collections.abc import Callable
 from urllib.parse import urlparse
+
+logger = logging.getLogger("ych.s4")
 
 _VERIFY_URLS = (
     "https://www.google.com/generate_204",
@@ -39,7 +42,8 @@ def _system_proxy_candidates(
     """读系统代理/环境变量，解析出 (host, port) 候选（保序去重）。"""
     try:
         proxies = getproxies_fn()
-    except Exception:
+    except Exception as exc:
+        logger.debug("系统代理解析失败（忽略）：%s", exc)
         return []
     out: list[tuple[str, int]] = []
     for key in ("https", "http"):

@@ -251,7 +251,10 @@ class DedupPage(QWidget):
         act_play.setEnabled(Path(path).is_file())   # 文件已不存在则置灰
         chosen = menu.exec(self.asset_list.viewport().mapToGlobal(pos))
         if chosen is act_reveal:
-            reveal_in_file_manager(path)
+            if not reveal_in_file_manager(path):
+                Toast.show_message(
+                    self, self.tr("打开文件管理器失败"), error=True,
+                )
         elif chosen is act_copy:
             copy_to_clipboard(path)
         elif chosen is act_play:
