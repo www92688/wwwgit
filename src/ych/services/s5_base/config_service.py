@@ -51,8 +51,9 @@ class ConfigService(QObject):
         # 工作台选项记忆（预处理选项 JSON / 去重档位 id）
         "preprocess_options": {},
         "dedup_preset": "",
-        # 自动对比候选
-        "compare_candidates_per_platform": 20,
+        # 自动对比候选（每平台候选都要真实下载+特征提取，20 会跑数分钟；
+        # 首轮落 compare_cache 后复跑近零成本）
+        "compare_candidates_per_platform": 6,
         "candidate_cache_ttl_days": 7,
         # 本地同关键词素材池上限（对比目标兜底，不依赖在线平台可达性）
         "compare_local_pool_max": 8,

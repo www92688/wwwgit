@@ -26,8 +26,11 @@ from ych.services.s5_base.config_service import ConfigService
 
 logger = logging.getLogger("ych.m3")
 
-# 对比平台集（需求 3.1 + 详设 18.2-6）：必选默认开 + 可选；不含小红书
-REQUIRED_PLATFORMS = ("douyin", "kuaishou", "bilibili")
+# 对比平台集（需求 3.1 + 详设 18.2-6）：必选默认开 + 可选；不含小红书。
+# douyin/kuaishou/bilibili/tiktok/youtube 当前为 SkeletonPlugin 占位（未实现，
+# 一律上报 unavailable）；pexels/pixabay 是已实现且国内可直连的素材站，
+# 线上候选实际由它们供给。
+REQUIRED_PLATFORMS = ("douyin", "kuaishou", "bilibili", "pexels", "pixabay")
 OPTIONAL_PLATFORMS = ("tiktok", "youtube")
 
 _CANDIDATE_BUDGET_S = 60.0     # 单候选特征预算，超时 skip

@@ -102,6 +102,18 @@ def test_pool_outside_workdir_or_shallow(tmp_path: Path) -> None:
 
 # ---------- CandidateSearcher：本地池兜底 ----------
 
+def test_compare_platform_set_includes_stock_sites() -> None:
+    from ych.core.m3_dedup.candidate_searcher import (
+        OPTIONAL_PLATFORMS,
+        REQUIRED_PLATFORMS,
+    )
+
+    # pexels/pixabay 是仅有的已实现平台：必须参与在线对比，
+    # 否则线上候选恒为空（其余平台为未实现骨架）
+    assert {"pexels", "pixabay"} <= set(REQUIRED_PLATFORMS)
+    assert "douyin" in REQUIRED_PLATFORMS and "youtube" in OPTIONAL_PLATFORMS
+
+
 class _FakeDao:
     def __init__(self) -> None:
         self.saved: list = []
