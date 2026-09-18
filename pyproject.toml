@@ -9,6 +9,20 @@ description = "源重构——爽文短视频素材采集、预处理与智能�
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = { text = "MIT" }
+authors = [{ name = "YuChongGou" }]
+keywords = ["video", "dedup", "pyqt", "pyside6", "ffmpeg"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Windows",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+]
 dependencies = [
     "PySide6>=6.6,<7",
     "opencv-python-headless>=4.9,<5",
@@ -20,6 +34,12 @@ dependencies = [
     "keyring>=24",
 ]
 
+[project.urls]
+Homepage = "https://github.com/YuChongGou/YuChongGou"
+Repository = "https://github.com/YuChongGou/YuChongGou"
+Issues = "https://github.com/YuChongGou/YuChongGou/issues"
+Documentation = "https://github.com/YuChongGou/YuChongGou#readme"
+
 [project.optional-dependencies]
 dev = [
     "pytest",
@@ -30,6 +50,9 @@ dev = [
     "ruff",
     "pyinstaller>=6.0",
 ]
+
+[project.scripts]
+ych = "ych.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -66,4 +89,21 @@ testpaths = ["tests"]
 addopts = "-q"
 markers = [
     "integration: 需要真实 ffmpeg 的端到端用例（缺失自动跳过）",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["ych"]
+omit = [
+    "*/tests/*",
+    "*/spikes/*",
+    "*/scripts/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
 ]

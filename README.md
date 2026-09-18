@@ -122,6 +122,31 @@ A: 机械硬盘首次启动可能偏慢（放宽至 8s）；后续启动有系�
 
 - 技术栈：Python 3.10~3.12 / PySide6 / ONNX Runtime / OpenCV / SQLite / FFmpeg
 - 本地开发：`pip install -e ".[dev]" && pytest tests -q`
+- 代码检查：`ruff check src tests` + `mypy`
+- 覆盖率门禁：服务层 `>=80%`、核心层 `>=65%`、关键算法 `>=90%`（由 CI 运行）
 - 打包：见 `scripts/build_exe.spec` 与 `.github/workflows/release.yml`
+- 打 release tag：`git tag v0.1.1 && git push origin v0.1.1` 自动触发 GitHub Release
+
+### 项目结构
+
+```
+src/ych/
+├── app.py                # 入口：冷启动 ≤5s，信号与页面接线
+├── context.py            # 懒加载 DI 组装
+├── common/               # 全局类型、schema、文件工具
+├── core/
+│   ├── m1_capture/       # 采集：插件、下载、搜索协调
+│   ├── m2_preprocess/    # 预处理：去水印/字幕/比例
+│   ├── m3_dedup/         # 去重：构图/运镜/节奏 + 手法引擎
+│   ├── m4_scheduler/     # 调度：状态机、重试、崩溃恢复
+│   └── m5_library/       # 素材库：归档、索引、工作目录
+├── services/
+│   ├── s1_media/         # ffmpeg、probe、帧提取
+│   ├── s2_ai/            # 远程/本地 AI 服务
+│   ├── s3_db/            # SQLite + DAO
+│   ├── s4_net/           # HTTP、限流
+│   └── s5_base/          # 配置、i18n、日志
+└── ui/                   # PySide6 页面：采集/预处理/去重/失败/设置
+```
 
 欢迎通过 Pull Request 参与平台适配与方法扩展（见 CONTRIBUTING.md）。

@@ -17,6 +17,13 @@ def main() -> int:
     from ych.context import build_context, user_data_dir
     from ych.services.s5_base.log_service import LogService
 
+    # 启动前环境预检（ffmpeg/ffprobe 缺失时仅提示，不阻断启动）
+    try:
+        from scripts.env_check import run as _env_run
+        _env_run(verbose=False)
+    except Exception as exc:
+        logging.getLogger("ych.app").warning("环境预检失败：%s", exc)
+
     # 日志写用户数据目录（打包后 CWD 可能不可写，禁用相对路径）
     LogService.setup(log_dir=user_data_dir() / "logs")
     logger = logging.getLogger("ych.app")

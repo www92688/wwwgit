@@ -30,6 +30,6 @@ f1.xml
 logs/
 *.log
 
-# IDE
-.idea/
-.vscode/
+# 运行时下载的 AI 模型（体积大、由 model_downloader 按需拉取，不入仓库）
+# 详见 design/max_design.md 9.2 与 README「AI 模型放入 runtime/models/」
+runtime/models/*.onnx
