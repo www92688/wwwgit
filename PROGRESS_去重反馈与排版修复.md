@@ -3,6 +3,30 @@
 > 上一轮两项修复（排版 / 模型下载）已完成待提交；本轮「去重没反馈」已修复完毕。
 > 9-13 二轮：「分析重复度假 0 分」根因修复（本地素材池兜底）+ 去重前后真实对比，待用户确认后一并提交。
 
+## 2026-09-18 项目规范落地（已提交 9679189 / 5a2a65e）
+
+按项目自身约定（CONTRIBUTING.md + design/max_design.md）补齐工程规范，未改动业务逻辑：
+
+1. `pyproject.toml` 补全元数据：authors / classifiers / urls / `ych` 命令行入口 /
+   coverage 配置（branch + source=ych + omit 测试与脚本）。
+2. `README.md` 开发者段补：ruff/mypy 检查命令、覆盖率门禁口径、release tag 流程、
+   项目目录结构图（对应 design/max_design.md 第三章）。
+3. `.gitignore` 新增 `runtime/models/*.onnx`：模型体积大、由
+   `model_downloader` 按需拉取，不入仓库。
+4. `scripts/env_check.py`（新）：启动前环境预检——ffmpeg/ffprobe 可执行性 +
+   必备模型存在性 + 可选外网探测；所有探测异常被捕获，绝不抛出；
+   支持 `--verbose` / `--json`（CI 解析）/ `--net`。
+5. `src/ych/app.py:main()` 启动时静默调用 env_check（仅 logger 提示），
+   不阻断启动；模型缺失时降级为经典特征，功能不崩溃（与 D2 降级策略一致）。
+6. 开源配套：`CHANGELOG.md`（Keep a Changelog）、`SECURITY.md`、
+   `.gitattributes`（onnx/ico 走 Git LFS）、`.github/ISSUE_TEMPLATE/` 与
+   `.github/PULL_REQUEST_TEMPLATE.md`。
+7. 校验：`ruff check` 全绿；`pytest tests/unit` 连跑 5 遍全绿（424 例）；
+   `python -m scripts.env_check --verbose` 退出码 0（模型缺失仅提示）。
+
+遗留：`test_robustness_regression` 仍为合跑偶发失败（单跑全过），未根治；
+`compare` 全平台不可用时报告恒 0 分/空列表（体验问题，未修）。
+
 ## 9-13 二轮：重复度分析真实性修复（均未提交）
 
 **查实结论**（用户质疑"假数据"属实）：

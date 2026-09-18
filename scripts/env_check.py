@@ -56,7 +56,7 @@ class EnvReport:
     def ready(self) -> bool:
         return self.ffmpeg_ok and self.ffprobe_ok
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         return {
             "ffmpeg_ok": self.ffmpeg_ok,
             "ffmpeg_path": self.ffmpeg_path,
@@ -106,7 +106,7 @@ def check_net(timeout: float = 5.0) -> tuple[bool, str]:
     return False, last or "unknown"
 
 
-def run(verbose: bool = False, check_net: bool = False) -> EnvReport:
+def run(verbose: bool = False, probe_net: bool = False) -> EnvReport:
     report = EnvReport()
 
     ok_f, path = check_binaries()
@@ -123,7 +123,7 @@ def run(verbose: bool = False, check_net: bool = False) -> EnvReport:
     report.models = models
     report.missing_models = [k for k, v in models.items() if not v]
 
-    if check_net:
+    if probe_net:
         net_ok, reason = check_net()
         report.net_ok = net_ok
         report.net_reason = reason
@@ -136,7 +136,7 @@ def run(verbose: bool = False, check_net: bool = False) -> EnvReport:
         for name, present in models.items():
             tag = "ok" if present else "MISSING"
             print(f"[env_check] model {name} ({REQUIRED_MODELS[name]}): {tag}")
-        if check_net:
+        if probe_net:
             print(f"[env_check] net: {'ok' if report.net_ok else 'BLOCKED'}"
                   f" ({report.net_reason})")
     return report
@@ -150,7 +150,7 @@ def main() -> int:
                         help="同时探测外网连通性")
     args = parser.parse_args()
 
-    report = run(verbose=args.verbose or args.json, check_net=args.net)
+    report = run(verbose=args.verbose or args.json, probe_net=args.net)
     if args.json:
         print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
 
