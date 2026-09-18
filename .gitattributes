@@ -1,0 +1,4 @@
+# 大文件走 Git LFS，避免仓库膨胀
+runtime/models/*.onnx filter=lfs diff=lfs merge=lfs -text
+runtime/**/*.onnx filter=lfs diff=lfs merge=lfs -text
+resources/*.ico filter=lfs diff=lfs merge=lfs -text
