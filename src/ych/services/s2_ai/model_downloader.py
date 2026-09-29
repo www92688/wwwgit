@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -167,6 +168,34 @@ class ModelDownloader:
             return dest
         self.progress.pop(key, None)
         raise last_exc or AppError(ERR_AI_MODEL_MISSING, "所有下载源均失败")
+
+    def import_file(self, key: str, src: Path) -> Path:
+        """手动导入模型（无公开下载源的自训练模型）：复制 → 契约校验 → 落位。
+
+        校验不通过即删除临时副本并报错，坏文件不会混入模型目录。
+        """
+        spec = MODEL_MANIFEST[key]
+        if not src.is_file():
+            raise AppError(ERR_AI_MODEL_MISSING, f"文件不存在：{src}")
+        self._dir.mkdir(parents=True, exist_ok=True)
+        dest = self._dir / spec.file
+        tmp = Path(f"{dest}.importing")
+        try:
+            shutil.copyfile(src, tmp)
+        except OSError as exc:
+            raise AppError(
+                ERR_FILE_NO_WRITE_PERMISSION,
+                "模型复制失败（磁盘空间不足或无写权限）",
+                cause=exc,
+            ) from exc
+        try:
+            self._verify(spec, tmp)
+        except AppError:
+            tmp.unlink(missing_ok=True)
+            raise
+        tmp.replace(dest)
+        logger.info("model imported: %s <- %s", spec.file, src)
+        return dest
 
     def _resume_for(self, part: Path) -> ResumeState:
         if part.exists():

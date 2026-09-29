@@ -115,6 +115,10 @@ class PluginManager:
         return out
 
     # ---- 可用性（TTL 缓存） ----
+    def invalidate(self, plugin_id: str) -> None:
+        """清除指定插件的可用性缓存（登录等状态变化后立即可用）。"""
+        self._avail_cache.pop(plugin_id, None)
+
     def availability(self, plugin: PlatformPlugin, force: bool = False) -> tuple[bool, str]:
         ttl = self._ttl_override
         if ttl is None:

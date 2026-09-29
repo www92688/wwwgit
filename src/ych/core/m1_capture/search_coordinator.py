@@ -58,8 +58,14 @@ class SearchCoordinator(QObject):
         """
         if self._worker is not None and self._worker.is_alive():
             # 上一轮搜索线程还在跑：拒绝重入（UI 层有 _searching 防抖，
-            # 此为核心层兜底——否则两轮线程并发 emit，结果会交错污染列表）
-            logger.warning("上一轮搜索尚未结束，本次 search_multi 调用被忽略")
+            # 此为核心层兜底——否则两轮线程并发 emit，结果会交错污染列表）。
+            # 必须发失败信号而不是静默返回：UI 的"搜索中"状态只有收到
+            # finished/failed 才会复位，静默拒绝 = 按钮永远转圈无响应
+            logger.warning("上一轮搜索尚未结束，本次 search_multi 调用被拒绝")
+            self.search_failed.emit(
+                keywords[0] if keywords else "",
+                "上一轮搜索尚未结束，请等按钮恢复后再试",
+            )
             return
         regions: list[Region] = [region] if region is not None else ["cn", "global"]
         worker = threading.Thread(
@@ -123,7 +129,10 @@ class SearchCoordinator(QObject):
             except Exception as exc:  # 单平台异常隔离（PLG 域错误）
                 logger.warning("平台 %s 搜索失败：%s", p.id, exc)
                 code = getattr(exc, "code", "")
-                unavailable.append((p.id, str(code or exc)))
+                # 原因码 + 详情一起给 UI（"码 明细" 空格分隔）：
+                # 用户需要看到"为什么不可用"，只有码没法定位（如超时/风控）
+                detail = str(getattr(exc, "message", "") or exc)
+                unavailable.append((p.id, f"{code} {detail}" if code else detail))
                 continue
             items.extend(found)
         merged = self._filter.apply(items, filters)

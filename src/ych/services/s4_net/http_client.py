@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, cast
+from urllib.parse import urlparse
 
 import requests
 from PySide6.QtCore import QObject, Signal
@@ -42,6 +43,8 @@ _DNS_MARKERS = (
 _CHUNK_SIZE = 256 * 1024          # 256KB（详设 6.3）
 _PROGRESS_INTERVAL_S = 1.0        # 进度回调最小间隔
 _PROGRESS_INTERVAL_BYTES = 1024 * 1024  # 或每 ≥1MB 回调一次
+# 代理判死后直连兜底的窗口：窗口内跳过代理（到期自动恢复尝试，自愈）
+_PROXY_DEAD_WINDOW_S = 300.0
 
 
 def _is_dns_error(exc: BaseException) -> bool:
@@ -63,6 +66,27 @@ def _body_snippet(resp: requests.Response, limit: int = 200) -> str:
     return f"远程服务返回 {resp.status_code}：{body[:limit]}"
 
 
+def split_proxy_address(text: str) -> tuple[str, int] | None:
+    """代理地址宽容解析：兼容用户粘贴的完整形态。
+
+    接受 "127.0.0.1:7890" / "http://127.0.0.1:7890" / "127.0.0.1"（无端口）；
+    空串返回 ("", 0)；无法解析出主机名（或端口非法）返回 None。
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return ("", 0)
+    if "://" not in raw:
+        raw = f"http://{raw}"
+    parsed = urlparse(raw)
+    if not parsed.hostname:
+        return None
+    try:
+        port = parsed.port or 0
+    except ValueError:   # 端口段非数字 / 超出 0-65535
+        return None
+    return (parsed.hostname, port)
+
+
 class HttpClient(QObject):
     """requests.Session 的统一封装；插件不得自建 session。"""
 
@@ -73,6 +97,11 @@ class HttpClient(QObject):
         super().__init__()
         self._config = config
         self._session = self._build_session()
+        # 直连兜底会话：代理配置了但进程死了（Clash 关闭残留）时，
+        # 能直连的站点（Pexels/Pixabay/AI 服务等）不受死代理拖累
+        self._direct = self._build_session()
+        self._direct.proxies = {}
+        self._proxy_dead_until = 0.0
         # 运行时改代理设置即时生效（无需重启）
         config.changed.connect(self._on_config_changed)
 
@@ -82,17 +111,25 @@ class HttpClient(QObject):
             # 在运行中的共享会话上热改 proxies 有竞态；旧会话由在途
             # 请求自然收尾后回收
             self._session = self._build_session()
+            self._proxy_dead_until = 0.0   # 代理配置变了：恢复尝试代理
             logger.info("网络会话已按新代理配置重建")
 
     def _apply_proxy(self, session: requests.Session | None = None) -> None:
         """代理配置 → session；__init__ 传入新会话，运行时改动复用现有会话。"""
         s = session if session is not None else self._session
         if self._config.get_typed("proxy_enabled", bool):
-            host = str(self._config.get("proxy_host"))
-            port_raw = self._config.get("proxy_port")
-            port = port_raw if isinstance(port_raw, int) else 0
+            # host 宽容解析：历史数据/手输可能把完整地址存进 host
+            # （"http://ip:port"），地址里带的端口优先，缺省再退 proxy_port
+            parsed = split_proxy_address(str(self._config.get("proxy_host")))
+            host = parsed[0] if parsed is not None else ""
+            port = parsed[1] if parsed is not None else 0
+            if port <= 0:
+                port_raw = self._config.get("proxy_port")
+                port = port_raw if isinstance(port_raw, int) else 0
             if host and port:
-                proxy = f"http://{host}:{port}"
+                # IPv6 主机需方括号包裹，否则代理 URL 无法解析
+                host_part = f"[{host}]" if ":" in host else host
+                proxy = f"http://{host_part}:{port}"
                 s.proxies = {"http": proxy, "https": proxy}
                 logger.info("代理已更新：%s:%s", host, port)
                 return
@@ -103,6 +140,9 @@ class HttpClient(QObject):
     def _build_session(self) -> requests.Session:
         """UA/超时/请求级重试/代理，全部来自 S5 配置（详设 6.2）。"""
         session = requests.Session()
+        # 显式代理（S5 配置）是唯一代理来源：忽略系统/环境代理。否则本机
+        # Clash 类工具关闭后残留的死代理会把所有请求拖死（NET003 误报）
+        session.trust_env = False
         max_retry = self._config.get_typed("max_retry", int)
         # 429 不在传输层重试：限频由 RateLimiter 前置规避 + 业务层 PLG003 退避
         # （详设 11.3），传输层快速重试只会加剧限频
@@ -123,6 +163,34 @@ class HttpClient(QObject):
     def session(self) -> requests.Session:
         return self._session
 
+    # ---- 统一发送入口：死代理自动直连兜底 ----
+    def send(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+        """统一请求入口（get/post/head 全部经此）。
+
+        - 代理被判定死亡（窗口内）→ 直接走直连会话；
+        - 代理请求抛 ProxyError（连接被拒/超时）→ 标记死亡窗口并直连
+          重试一次；窗口过期后再请求会重新尝试代理（自愈）。
+        trust_env=False 且直连会话 proxies 为空，直连请求不会产生 ProxyError。
+        """
+        main = cast(
+            Callable[..., requests.Response], getattr(self._session, method),
+        )
+        direct = cast(
+            Callable[..., requests.Response], getattr(self._direct, method),
+        )
+        if time.monotonic() < self._proxy_dead_until:
+            return direct(url, **kwargs)
+        try:
+            return main(url, **kwargs)
+        except requests.exceptions.ProxyError as exc:
+            self._proxy_dead_until = time.monotonic() + _PROXY_DEAD_WINDOW_S
+            logger.warning(
+                "代理不可达（%s），后续 %d 分钟内自动直连；本次已直连重试：%s",
+                exc.__class__.__name__, int(_PROXY_DEAD_WINDOW_S // 60),
+                LogService.sanitize(url),
+            )
+            return direct(url, **kwargs)
+
     # ---- 基础请求 ----
     def get_json(
         self,
@@ -139,8 +207,9 @@ class HttpClient(QObject):
         """
         logger.debug("GET %s", LogService.sanitize(url))
         try:
-            resp = self._session.get(
-                url, params=params, headers=headers, timeout=(5, timeout_s)
+            resp = self.send(
+                "get", url, params=params, headers=headers,
+                timeout=(5, timeout_s),
             )
         except requests.exceptions.Timeout as exc:
             self.net_error.emit(ERR_NET_TIMEOUT, "连接超时")
@@ -180,8 +249,9 @@ class HttpClient(QObject):
         logger.debug("POST %s", LogService.sanitize(url))
         timeout = (5, timeout_s)
         try:
-            resp = self._session.post(
-                url, json=cast(Any, json_body), headers=headers, timeout=timeout
+            resp = self.send(
+                "post", url, json=cast(Any, json_body), headers=headers,
+                timeout=timeout,
             )
         except requests.exceptions.Timeout as exc:
             self.net_error.emit(ERR_NET_TIMEOUT, "连接超时")
@@ -212,7 +282,7 @@ class HttpClient(QObject):
 
     def head(self, url: str) -> requests.Response:
         """HEAD 请求（探测/取大小用）。"""
-        return self._session.head(url, timeout=(5, 30), allow_redirects=True)
+        return self.send("head", url, timeout=(5, 30), allow_redirects=True)
 
     # ---- 断点续传下载（详设 6.3 算法逐步落地）----
     def download_stream(
@@ -248,8 +318,8 @@ class HttpClient(QObject):
             headers["Range"] = f"bytes={start_from}-"
 
         try:
-            resp = self._session.get(
-                url, headers=headers, stream=True, timeout=(5, 30)
+            resp = self.send(
+                "get", url, headers=headers, stream=True, timeout=(5, 30),
             )
         except requests.exceptions.Timeout as exc:
             raise AppError(ERR_NET_TIMEOUT, "下载连接超时", cause=exc) from exc
@@ -267,8 +337,8 @@ class HttpClient(QObject):
             resp.close()
             headers.pop("Range", None)
             try:
-                resp = self._session.get(
-                    url, headers=headers, stream=True, timeout=(5, 30)
+                resp = self.send(
+                    "get", url, headers=headers, stream=True, timeout=(5, 30),
                 )
             except requests.exceptions.RequestException as exc:
                 raise AppError(ERR_NET_TIMEOUT, "下载连接失败", cause=exc) from exc
@@ -364,15 +434,16 @@ class HttpClient(QObject):
         """
         timeout = (timeout_s, timeout_s)
         try:
-            self._session.head(url, timeout=timeout, allow_redirects=True)
+            self.send("head", url, timeout=timeout, allow_redirects=True)
             return "ok"
         except requests.exceptions.ConnectionError as exc:
             if _is_dns_error(exc):
                 return "dns_fail"
             # HEAD 可能被拒绝 → 退化 GET 单字节范围再试一次
             try:
-                resp = self._session.get(
-                    url, headers={"Range": "bytes=0-0"},
+                resp = self.send(
+                    "get", url,
+                    headers={"Range": "bytes=0-0"},
                     stream=True, timeout=timeout,
                 )
                 resp.close()
@@ -392,13 +463,13 @@ class HttpClient(QObject):
         timeout = (timeout_s, timeout_s)
         start = time.monotonic()
         try:
-            resp = self._session.head(url, timeout=timeout, allow_redirects=True)
+            resp = self.send("head", url, timeout=timeout, allow_redirects=True)
             resp.close()
             return int((time.monotonic() - start) * 1000)
         except requests.exceptions.ConnectionError:
             try:
-                resp = self._session.get(
-                    url, headers={"Range": "bytes=0-0"},
+                resp = self.send(
+                    "get", url, headers={"Range": "bytes=0-0"},
                     stream=True, timeout=timeout,
                 )
                 resp.close()

@@ -44,6 +44,12 @@ class ConfigService(QObject):
         "retry_backoff_seconds": [2, 8],
         # 采集
         "download_limit": 20,
+        # 抖音风控节流（方案一）：冷却截止时间戳 / 连续拒绝次数 /
+        # 当日搜索用量 {date, used} / 最近一次搜索时间戳
+        "douyin_cooldown_until": 0.0,
+        "douyin_reject_strikes": 0,
+        "douyin_daily_usage": {},
+        "douyin_last_search_ts": 0.0,
         # 自定义 AI 服务（OpenAI 兼容接口）：{id: {name, base_url, model, has_key}}
         "ai_services": {},
         # 默认 AI 服务 id；空 = 未配置（关键词扩展等 AI 功能引导去设置页）
@@ -80,6 +86,11 @@ class ConfigService(QObject):
         # API Key 只在库中存布尔标记，真实值存 keyring
         "pexels_api_key": False,
         "pixabay_api_key": False,
+        # 抖音采集（内置下载器）：Cookie 登录标记 + vendor 目录覆盖（空=自动定位）
+        "douyin_cookies_set": False,
+        "douyin_vendor_dir": "",
+        # 登录用户的抖音昵称（登录/启动时后台抓取；空=未取到，UI 降级显示）
+        "douyin_nickname": "",
     }
 
     def __init__(self) -> None:

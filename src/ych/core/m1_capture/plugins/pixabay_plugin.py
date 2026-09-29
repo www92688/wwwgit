@@ -77,6 +77,10 @@ class PixabayPlugin(PlatformPlugin):
         key = self._api_key()
         if not key:
             raise AppError(ERR_PLG_KEY_MISSING, "尚未配置 Pixabay API Key，请在设置页填写")
+        if "://" in keyword or len(keyword) > 100:
+            # 链接不是合理的素材搜索词：API 会 400，直接视为无结果
+            # （采集页粘贴抖音主页链接时，素材站不应报"平台不可用"）
+            return []
         resp = self.api_get(
             f"{self.API_BASE}/",
             params={"key": key, "q": keyword, "per_page": str(min(max_count, 50))},

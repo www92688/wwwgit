@@ -118,6 +118,37 @@ def test_next_filename_sequence_increments(m5) -> None:
     ]
 
 
+def test_fs_keyword_url_and_unsafe_chars(m5) -> None:
+    """URL 形态关键词（抖音主页链接）必须转成文件系统安全且恒等的形态。"""
+    fs = type(m5["archive"]).fs_keyword
+    url = ("https://www.douyin.com/user/MS4wLjABAAAAJODiOcX1x4rU6DWcG2uSM4CV"
+           "EsgrMA7fTsW09CJCz8CYIZE0rhqaq40mMupXwtnu?from_tab_name=main&vid=1")
+    got = fs(url)
+    assert got == "MS4wLjABAAAAJODiOcX1x4rU6DWcG2uSM4CVEsgr"   # 路径末段截断 40
+    assert fs(url) == got                                   # 恒等映射
+    assert fs("粘土") == "粘土"                             # 普通关键词原样
+    assert fs('a/b\\c:d*e?f"g<h>i|j') == "a_b_c_d_e_f_g_h_i_j"
+    assert fs("   ") == "unnamed"
+
+
+def test_archive_download_with_url_keyword(m5) -> None:
+    """抖音搜索的关键词是长 URL：归档必须成功且落在安全目录。"""
+    tmp_file = _make_temp(m5["root"], "dl.part.mp4")
+    url = ("https://www.douyin.com/user/MS4wLjABAAAAJODiOcX1x4rU6DWcG2uSM4CV"
+           "EsgrMA7fTsW09CJCz8CYIZE0rhqaq40mMupXwtnu")
+    final = m5["archive"].archive_download(
+        META, tmp_file, url + "?from_tab_name=main",
+    )
+    assert final.is_file() and final.stat().st_size > 0
+    assert ":" not in final.name and "?" not in final.name
+    rel = final.relative_to(m5["root"])
+    assert rel.parts[0] == "MS4wLjABAAAAJODiOcX1x4rU6DWcG2uSM4CVEsgr"
+    assert final.name == "pexels_MS4wLjABAAAAJODiOcX1x4rU6DWcG2uSM4CVEsgr_001.mp4"
+    # 资产索引用同一安全形态：预处理/去重树按此分组
+    row = m5["daos"].assets.find_by_dir(final.parent)[0]
+    assert row.keyword == "MS4wLjABAAAAJODiOcX1x4rU6DWcG2uSM4CVEsgr"
+
+
 def test_mirror_path_cleaned_same_dir(m5) -> None:
     src = m5["root"] / "清洗类" / "地毯" / "2026-01-01" / "a.mp4"
     out = m5["archive"].mirror_path_for_output(src, "_cleaned")

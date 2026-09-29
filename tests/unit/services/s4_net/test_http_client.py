@@ -228,3 +228,91 @@ def test_proxy_config_hot_reload(memory_config) -> None:
 
     memory_config.set("proxy_enabled", False)
     assert client.session.proxies == {}
+
+
+# ---------- 死代理自动直连兜底 ----------
+def _fake_response(content: bytes) -> requests.Response:
+    resp = requests.Response()
+    resp.status_code = 200
+    resp._content = content
+    return resp
+
+
+def test_proxy_dead_falls_back_to_direct(client, monkeypatch) -> None:
+    """代理请求 ProxyError（Clash 关闭残留）→ 标记死亡窗口并直连重试。"""
+    calls = {"proxy": 0, "direct": 0}
+
+    def _proxy_boom(*_a: object, **_k: object) -> requests.Response:
+        calls["proxy"] += 1
+        raise requests.exceptions.ProxyError("connection refused")
+
+    def _direct_ok(*_a: object, **_k: object) -> requests.Response:
+        calls["direct"] += 1
+        return _fake_response(b'{"ok": true}')
+
+    monkeypatch.setattr(client._session, "get", _proxy_boom)
+    monkeypatch.setattr(client._direct, "get", _direct_ok)
+
+    data = client.get_json("https://api.example.com/x")
+    assert data == {"ok": True}
+    assert calls == {"proxy": 1, "direct": 1}
+    # 死亡窗口置位：窗口内的后续请求直接走直连，不再碰代理
+    client.get_json("https://api.example.com/x")
+    assert calls == {"proxy": 1, "direct": 2}
+
+
+def test_proxy_dead_direct_also_fails_maps_net_error(
+    client, monkeypatch,
+) -> None:
+    """代理与直连都失败：按直连侧异常映射 NET 域错误码（不误报代理）。"""
+
+    def _proxy_boom(*_a: object, **_k: object) -> requests.Response:
+        raise requests.exceptions.ProxyError("connection refused")
+
+    def _direct_boom(*_a: object, **_k: object) -> requests.Response:
+        raise requests.exceptions.ConnectionError("no route to host")
+
+    monkeypatch.setattr(client._session, "get", _proxy_boom)
+    monkeypatch.setattr(client._direct, "get", _direct_boom)
+
+    with pytest.raises(AppError) as ei:
+        client.get_json("https://api.example.com/x")
+    assert ei.value.code == "NET001"   # ConnectionError（非 DNS）→ 网络失败
+
+
+def test_proxy_hot_reload_resets_dead_window(memory_config) -> None:
+    """代理配置变更后清除断代标记：新配置立即恢复尝试。"""
+    client = HttpClient(memory_config)
+    client._proxy_dead_until = 1e12   # 模拟处于死亡窗口
+    memory_config.set("proxy_enabled", True)
+    memory_config.set("proxy_host", "127.0.0.1")
+    memory_config.set("proxy_port", 7897)
+    assert client._proxy_dead_until == 0.0
+
+
+# ---------- 代理地址宽容解析 ----------
+def test_split_proxy_address_variants() -> None:
+    from ych.services.s4_net.http_client import split_proxy_address
+
+    assert split_proxy_address("127.0.0.1:7890") == ("127.0.0.1", 7890)
+    assert split_proxy_address("http://127.0.0.1:7890") == ("127.0.0.1", 7890)
+    assert split_proxy_address("http://120.25.100.196:3000") == (
+        "120.25.100.196", 3000,
+    )
+    assert split_proxy_address(" 127.0.0.1 ") == ("127.0.0.1", 0)
+    assert split_proxy_address("") == ("", 0)
+    assert split_proxy_address("   ") == ("", 0)
+    assert split_proxy_address("http://") is None          # 无主机
+    assert split_proxy_address("http://h:notaport") is None  # 端口非法
+
+
+def test_proxy_host_with_embedded_address_applies(memory_config) -> None:
+    """历史脏数据：host 里存了完整地址（端口留 0）也要能生效，不得静默停用。"""
+    memory_config.set("proxy_enabled", True)
+    memory_config.set("proxy_host", "http://120.25.100.196:3000")
+    memory_config.set("proxy_port", 0)
+    client = HttpClient(memory_config)
+    assert client.session.proxies == {
+        "http": "http://120.25.100.196:3000",
+        "https": "http://120.25.100.196:3000",
+    }

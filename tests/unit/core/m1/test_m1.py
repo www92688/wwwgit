@@ -26,6 +26,9 @@ from ych.core.m1_capture.history_service import HistoryService
 from ych.core.m1_capture.net_checker import ForeignNetChecker, NetStatus
 from ych.core.m1_capture.plugin_base import PlatformPlugin
 from ych.core.m1_capture.plugin_manager import PluginManager
+from ych.core.m1_capture.plugins import _douyin_backend as douyin_backend
+from ych.core.m1_capture.plugins import douyin_plugin as douyin_plugin_mod
+from ych.core.m1_capture.plugins.douyin_plugin import DouyinPlugin
 from ych.core.m1_capture.result_filter import ResultFilter
 from ych.core.m1_capture.search_coordinator import SearchCoordinator
 from ych.core.m4_scheduler.task_scheduler import TaskScheduler
@@ -99,12 +102,11 @@ def test_result_filter_sort_height_desc_duration_asc() -> None:
     assert [m.video_key for m in out] == ["c", "b", "a", "d"]
 
 
-# ================= 六平台骨架占位 =================
+# ================= 五平台骨架占位（抖音已实装，见下节） =================
 
 @pytest.mark.parametrize(
     "plugin_cls_path",
     [
-        "ych.core.m1_capture.plugins.douyin_plugin:DouyinPlugin",
         "ych.core.m1_capture.plugins.kuaishou_plugin:KuaishouPlugin",
         "ych.core.m1_capture.plugins.bilibili_plugin:BilibiliPlugin",
         "ych.core.m1_capture.plugins.xiaohongshu_plugin:XiaohongshuPlugin",
@@ -123,6 +125,623 @@ def test_skeleton_plugins_not_implemented(plugin_cls_path: str) -> None:
         plugin.search("地毯", SearchFilters(), 10, None)
     assert ei.value.code == ERR_PLG_UNAVAILABLE
     assert "暂未开放" in ei.value.message
+
+
+# ================= 抖音插件（内置下载器子进程） =================
+
+def _douyin_plugin(memory_config: ConfigService) -> DouyinPlugin:
+    return DouyinPlugin(None, memory_config)  # type: ignore[arg-type]
+
+
+def _douyin_vendor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    logged_in: bool = False,
+) -> None:
+    """伪造 vendor 目录：可用 + 最小配置（登录态由 msToken + 登录态 Cookie 决定）。"""
+    monkeypatch.setattr(
+        douyin_backend, "resolve_vendor_root", lambda override="": tmp_path,
+    )
+    mstoken = "x" * 40 if logged_in else "YOUR_MS_TOKEN"
+    login_cookie = f"  sessionid: {'y' * 40}\n" if logged_in else ""
+    (tmp_path / "config_plugin.yml").write_text(
+        "link:\n  - __DOUYIN_HOME_URL__\nnumber:\n  post: 1\n"
+        f'video: false\nstart_time: ""\nend_time: ""\n'
+        f"cookies:\n  msToken: {mstoken}\n{login_cookie}",
+        encoding="utf-8",
+    )
+
+
+def test_douyin_check_available_branches(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = _douyin_plugin(memory_config)
+    monkeypatch.setattr(
+        douyin_backend, "resolve_vendor_root", lambda override="": None,
+    )
+    assert plugin.check_available() == (False, "PLG010")          # vendor 缺失
+    _douyin_vendor(tmp_path, monkeypatch)
+    assert plugin.check_available() == (False, ERR_PLG_KEY_MISSING)  # 未登录
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+    assert plugin.check_available() == (True, "ok")               # 文件态已登录
+
+
+def test_douyin_search_rejects_non_home_url(memory_config: ConfigService) -> None:
+    plugin = _douyin_plugin(memory_config)
+    with pytest.raises(AppError) as ei:
+        plugin.search("解压视频", SearchFilters(), 10, None)
+    assert "主页链接" in ei.value.message
+
+
+def test_douyin_search_requires_login(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=False)
+    with pytest.raises(AppError) as ei:
+        plugin.search("https://www.douyin.com/user/MS4wLjAB123", SearchFilters(), 10, None)
+    assert ei.value.code == ERR_PLG_KEY_MISSING
+
+
+def test_douyin_search_happy_path(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+
+    def fake_run_cli(
+        root: Path, args: list[str], token: object, timeout: float,
+    ) -> tuple[int, list[str]]:
+        run_dir = Path(args[args.index("-p") + 1])
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "2026-01-01_样例_999_data.json").write_text(json.dumps({
+            "aweme_id": "999", "desc": "样例", "create_time": 1767225600,
+            "video": {"duration": 15000, "width": 1080, "height": 1920},
+        }), encoding="utf-8")
+        return 0, ["done"]
+
+    calls = {"n": 0}
+
+    def counting_run_cli(
+        root: Path, args: list[str], token: object, timeout: float,
+    ) -> tuple[int, list[str]]:
+        calls["n"] += 1
+        return fake_run_cli(root, args, token, timeout)
+
+    monkeypatch.setattr(douyin_backend, "run_cli", counting_run_cli)
+    metas = plugin.search(
+        "https://www.douyin.com/user/MS4wLjAB123", SearchFilters(), 10, None,
+    )
+    assert len(metas) == 1
+    assert metas[0].video_key == "999"
+    assert metas[0].watermark_tag == "no"
+    assert metas[0].extra["home_url"] == "https://www.douyin.com/user/MS4wLjAB123"
+    assert calls["n"] == 1   # 首次命中不再重试
+
+
+def test_douyin_search_empty_retries_then_succeeds(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """间歇性风控：首次拉空退避重试一次；第二窗口产出即成功。"""
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+    monkeypatch.setattr(douyin_plugin_mod, "_EMPTY_RETRY_BACKOFF_S", 0.01)
+
+    calls = {"n": 0}
+
+    def fake_run_cli(
+        root: Path, args: list[str], token: object, timeout: float,
+    ) -> tuple[int, list[str]]:
+        calls["n"] += 1
+        run_dir = Path(args[args.index("-p") + 1])
+        run_dir.mkdir(parents=True, exist_ok=True)
+        if calls["n"] >= 2:   # 重试窗口才有产出
+            (run_dir / "2026-01-01_样例_777_data.json").write_text(
+                json.dumps({"aweme_id": "777", "desc": "重试产出"}),
+                encoding="utf-8",
+            )
+        return 0, []
+
+    monkeypatch.setattr(douyin_backend, "run_cli", fake_run_cli)
+    metas = plugin.search(
+        "https://www.douyin.com/user/MS4wLjAB123", SearchFilters(), 10, None,
+    )
+    assert calls["n"] == 2
+    assert [m.video_key for m in metas] == ["777"]
+
+
+def test_douyin_search_empty_after_retry_raises(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """重试后仍拉空：给出含"已自动重试"的明确报错，不静默返回空。"""
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+    monkeypatch.setattr(douyin_plugin_mod, "_EMPTY_RETRY_BACKOFF_S", 0.01)
+    monkeypatch.setattr(
+        douyin_backend, "run_cli",
+        lambda root, args, token, timeout: (0, []),
+    )
+    with pytest.raises(AppError) as ei:
+        plugin.search(
+            "https://www.douyin.com/user/MS4wLjAB123", SearchFilters(), 10, None,
+        )
+    assert "已自动重试" in ei.value.message
+
+
+def test_douyin_search_timeout_salvages_harvest(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """超时被杀≠全无产出：已落盘的作品元数据必须回收为部分成功。"""
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+
+    def fake_run_cli(
+        root: Path, args: list[str], token: object, timeout: float,
+    ) -> tuple[int, list[str]]:
+        run_dir = Path(args[args.index("-p") + 1])
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "2026-01-01_样例_888_data.json").write_text(
+            json.dumps({"aweme_id": "888", "desc": "超时前已抓到"}),
+            encoding="utf-8",
+        )
+        raise AppError("PLG010", "抖音下载器执行超时，已终止")
+
+    monkeypatch.setattr(douyin_backend, "run_cli", fake_run_cli)
+    metas = plugin.search(
+        "https://www.douyin.com/user/MS4wLjAB123", SearchFilters(), 10, None,
+    )
+    assert [m.video_key for m in metas] == ["888"]
+
+
+def test_douyin_search_cancel_propagates(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """用户取消必须原样上抛（回收逻辑不得吞掉取消信号）。"""
+    from ych.common.cancellation import TaskCanceled
+
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+
+    def fake_run_cli(
+        root: Path, args: list[str], token: object, timeout: float,
+    ) -> tuple[int, list[str]]:
+        raise TaskCanceled("抖音采集已取消")
+
+    monkeypatch.setattr(douyin_backend, "run_cli", fake_run_cli)
+    with pytest.raises(TaskCanceled):
+        plugin.search(
+            "https://www.douyin.com/user/MS4wLjAB123", SearchFilters(), 10, None,
+        )
+
+
+def test_douyin_download_empty_then_retry_succeeds(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """下载与搜索同源的风控拉空：退出码 0 但无产出时退避重试一次。"""
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+    monkeypatch.setattr(douyin_plugin_mod, "_EMPTY_RETRY_BACKOFF_S", 0.01)
+
+    calls = {"n": 0}
+
+    def fake_run_cli(
+        root: Path, args: list[str], token: object, timeout: float,
+    ) -> tuple[int, list[str]]:
+        calls["n"] += 1
+        if calls["n"] >= 2:   # 重试窗口才产出媒体
+            media = Path(args[args.index("-p") + 1]) / "x_999.mp4"
+            media.parent.mkdir(parents=True, exist_ok=True)
+            media.write_bytes(b"mp4-bytes")
+        return 0, ["no media"]
+
+    monkeypatch.setattr(douyin_backend, "run_cli", fake_run_cli)
+    state = plugin.download(
+        _meta(plugin_id="douyin", video_key="999", extra={
+            "home_url": "https://www.douyin.com/user/x", "date": "2026-01-01",
+        }),
+        tmp_path / "dest_base", None, None, None,
+    )
+    assert calls["n"] == 2
+    assert Path(state.temp_path).read_bytes() == b"mp4-bytes"
+
+
+# ================= 抖音风控节流（方案一） =================
+
+def test_douyin_risk_cooldown_blocks_search_without_cli(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """冷却期内搜索：快速给出冷却提示，不发起 CLI（不撞平台）。"""
+    import time as _time
+
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+    memory_config.set("douyin_cooldown_until", _time.time() + 600)
+
+    def _boom(*a: object, **k: object) -> tuple[int, list[str]]:
+        raise AssertionError("冷却期内不得发起 CLI")
+
+    monkeypatch.setattr(douyin_backend, "run_cli", _boom)
+    with pytest.raises(AppError) as ei:
+        plugin.search(
+            "https://www.douyin.com/user/MS4wLjAB123", SearchFilters(), 10, None,
+        )
+    assert "冷却" in ei.value.message
+    assert memory_config.get("douyin_last_search_ts") == 0.0   # 未消耗预算
+
+
+def test_douyin_risk_rejection_sets_cooldown_and_skips_retry(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """确定性拒绝：立即进冷却且不再重试（重试只会延长封锁）。"""
+    import time as _time
+
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+
+    calls = {"n": 0}
+
+    def fake_run_cli(
+        root: Path, args: list[str], token: object, timeout: float,
+    ) -> tuple[int, list[str]]:
+        calls["n"] += 1
+        return 0, ["作品列表 第 1 页被抖音拒绝：抖音安全校验只放行网页内发起的请求"]
+
+    monkeypatch.setattr(douyin_backend, "run_cli", fake_run_cli)
+    with pytest.raises(AppError) as ei:
+        plugin.search(
+            "https://www.douyin.com/user/MS4wLjAB123", SearchFilters(), 10, None,
+        )
+    assert calls["n"] == 1                       # 未进入空产出重试
+    assert "安全校验拒绝" in ei.value.message
+    assert memory_config.get("douyin_reject_strikes") == 1
+    until = float(memory_config.get("douyin_cooldown_until") or 0)
+    assert until > _time.time()                  # 冷却已生效
+
+
+def test_douyin_risk_interval_and_budget(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """最小搜索间隔与每日预算：超限快速提示；跨天预算自动归零。"""
+    import time as _time
+
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+    monkeypatch.setattr(
+        douyin_backend, "run_cli",
+        lambda root, args, token, timeout: (0, []),
+    )
+    home = "https://www.douyin.com/user/MS4wLjAB123"
+
+    # 间隔：发起一次后立刻再搜 → 间隔拦截
+    with pytest.raises(AppError, match="未获取到作品"):   # 第一次放行（内部重试耗尽）
+        plugin.search(home, SearchFilters(), 10, None)
+    with pytest.raises(AppError) as ei:
+        plugin.search(home, SearchFilters(), 10, None)
+    assert "距离上次搜索" in ei.value.message
+
+    # 预算：今天已用满 → 拦截；日期回退到昨天 → 自动归零放行
+    memory_config.set(
+        "douyin_daily_usage",
+        {"date": _time.strftime("%Y-%m-%d"), "used": 20},
+    )
+    memory_config.set("douyin_last_search_ts", 0)   # 解除间隔拦截
+    with pytest.raises(AppError) as ei:
+        plugin.search(home, SearchFilters(), 10, None)
+    assert "预算" in ei.value.message
+    memory_config.set(
+        "douyin_daily_usage", {"date": "2000-01-01", "used": 20},
+    )
+    with pytest.raises(AppError, match="未获取到作品"):   # 跨天放行
+        plugin.search(home, SearchFilters(), 10, None)
+
+
+def test_douyin_risk_ladder_and_success_reset(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """连续拒绝冷却阶梯放大；采集成功后拒绝计数清零。"""
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+    risk = plugin._risk
+    risk._clock = lambda: 1_000_000.0   # 固定时钟便于断言
+
+    risk.note_rejection()
+    first = risk.cooldown_remaining()
+    risk.note_rejection()
+    second = risk.cooldown_remaining()
+    assert second > first               # 阶梯放大
+
+    def fake_run_cli(
+        root: Path, args: list[str], token: object, timeout: float,
+    ) -> tuple[int, list[str]]:
+        run_dir = Path(args[args.index("-p") + 1])
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "x_777_data.json").write_text(
+            json.dumps({"aweme_id": "777"}), encoding="utf-8",
+        )
+        return 0, []
+
+    monkeypatch.setattr(douyin_backend, "run_cli", fake_run_cli)
+    memory_config.set("douyin_cooldown_until", 0)   # 清冷却：验证成功路径本身
+    metas = plugin.search(
+        "https://www.douyin.com/user/MS4wLjAB123", SearchFilters(), 10, None,
+    )
+    assert [m.video_key for m in metas] == ["777"]
+    assert memory_config.get("douyin_reject_strikes") == 0   # 成功清零
+
+
+def test_douyin_download_cooldown_fails_fast(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """冷却期内的下载任务：快速失败带明确原因，不发起 CLI。"""
+    import time as _time
+
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+    memory_config.set("douyin_cooldown_until", _time.time() + 600)
+
+    def _boom(*a: object, **k: object) -> tuple[int, list[str]]:
+        raise AssertionError("冷却期内不得发起 CLI")
+
+    monkeypatch.setattr(douyin_backend, "run_cli", _boom)
+    with pytest.raises(AppError) as ei:
+        plugin.download(
+            _meta(plugin_id="douyin", video_key="999", extra={
+                "home_url": "https://www.douyin.com/user/x", "date": "2026-01-01",
+            }),
+            tmp_path / "dest", None, None, None,
+        )
+    assert "冷却" in ei.value.message
+
+
+def test_douyin_download_happy_path(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+    media = tmp_path / "_downloads" / "2026-01-01_样例_999.mp4"
+    media.parent.mkdir(parents=True, exist_ok=True)
+    media.write_bytes(b"mp4-bytes")
+    monkeypatch.setattr(
+        douyin_backend, "run_cli",
+        lambda root, args, token, timeout: (0, ["done"]),
+    )
+    state = plugin.download(
+        _meta(plugin_id="douyin", video_key="999", extra={
+            "home_url": "https://www.douyin.com/user/x", "date": "2026-01-01",
+        }),
+        tmp_path / "dest_base", None, None, None,
+    )
+    assert Path(state.temp_path).read_bytes() == b"mp4-bytes"
+    assert state.total_bytes == len(b"mp4-bytes")
+
+
+def test_douyin_download_missing_media_raises(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+    monkeypatch.setattr(
+        douyin_backend, "run_cli",
+        lambda root, args, token, timeout: (0, ["no media"]),
+    )
+    with pytest.raises(AppError) as ei:
+        plugin.download(
+            _meta(plugin_id="douyin", video_key="404", extra={
+                "home_url": "https://www.douyin.com/user/x", "date": "2026-01-01",
+            }),
+            tmp_path / "dest", None, None, None,
+        )
+    assert "可能被风控拦截" in ei.value.message
+
+
+def test_douyin_build_run_config_replacements() -> None:
+    text = douyin_backend.build_run_config(
+        "link:\n  - __DOUYIN_HOME_URL__\nnumber:\n  post: 1\n"
+        'start_time: ""\nend_time: ""\n',
+        "https://www.douyin.com/user/abc", 0,
+        start_date="2026-01-01", end_date="2026-01-01",
+    )
+    assert "https://www.douyin.com/user/abc" in text
+    assert "__DOUYIN_HOME_URL__" not in text
+    assert "  post: 0" in text
+    assert 'start_time: "2026-01-01"' in text
+    assert 'end_time: "2026-01-01"' in text
+
+
+def test_douyin_build_run_config_single_quoted_dates() -> None:
+    """CLI 重写后的运行态配置用单引号空日期：日期窗口仍必须写入。
+
+    只认双引号会让窗口静默失效，number.post=0 时全量下载整个主页。
+    """
+    text = douyin_backend.build_run_config(
+        "link:\n  - __DOUYIN_HOME_URL__\n"
+        "start_time: ''\nend_time: ''\n",
+        "https://www.douyin.com/user/abc", 0,
+        start_date="2026-08-27", end_date="2026-08-27",
+    )
+    assert 'start_time: "2026-08-27"' in text
+    assert 'end_time: "2026-08-27"' in text
+
+
+def test_douyin_build_run_config_link_forced_replace() -> None:
+    """link 注入不依赖占位符：CLI/工具重写后的真实链接、无缩进、多条目
+    残留都必须被整体替换为目标主页（否则静默采错博主）。"""
+    text = douyin_backend.build_run_config(
+        "link:\n"
+        "- https://www.douyin.com/user/old_one\n"
+        "- https://www.douyin.com/user/old_two\n"
+        "start_time: ''\n",
+        "https://www.douyin.com/user/new_target", 30,
+    )
+    assert "- https://www.douyin.com/user/new_target" in text
+    assert "old_one" not in text and "old_two" not in text
+    assert "__DOUYIN_HOME_URL__" not in text
+
+
+def test_douyin_build_run_config_missing_link_section_raises() -> None:
+    """模板缺 link 段（结构损坏）必须报错，禁止静默产出跑偏的运行配置。"""
+    with pytest.raises(AppError) as ei:
+        douyin_backend.build_run_config(
+            "number:\n  post: 5\n",
+            "https://www.douyin.com/user/abc", 5,
+        )
+    assert "主页链接写入失败" in ei.value.message
+
+
+def test_douyin_build_run_config_video_flip_failure_raises() -> None:
+    """模板 video 键缺失/变形时下载阶段必须报错（否则永远下载不出文件）。"""
+    with pytest.raises(AppError) as ei:
+        douyin_backend.build_run_config(
+            "link:\n  - __DOUYIN_HOME_URL__\nvideo: auto\n",
+            "https://www.douyin.com/user/abc", 1,
+            download_media=True,
+        )
+    assert "video" in ei.value.message
+
+
+def test_douyin_build_run_config_overrides_scroll_tuning() -> None:
+    """运行态配置残留旧滚动参数（240/8）时按代码调优值覆盖（60/4）。"""
+    text = douyin_backend.build_run_config(
+        "link:\n  - __DOUYIN_HOME_URL__\n"
+        "scroll:\n  max_scrolls: 240\n  idle_rounds: 8\n",
+        "https://www.douyin.com/user/abc", 5,
+    )
+    assert "  max_scrolls: 60" in text
+    assert "  idle_rounds: 4" in text
+
+
+def test_douyin_run_cli_forces_utf8_stdio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """中文 Windows 管道默认 GBK，CLI 的 ℹ️ 日志会让子进程崩溃：
+    必须强制子进程 UTF-8 标准流，父进程按 UTF-8 解码。"""
+    import io as _io
+
+    captured: dict[str, object] = {}
+
+    class _FakeProc:
+        def __init__(self, *_args: object, **kwargs: object) -> None:
+            captured.update(kwargs)
+            self.stdout = _io.StringIO("")
+            self.pid = 4242
+            self.returncode = 0
+
+        def poll(self) -> int:
+            return 0
+
+    monkeypatch.setattr(douyin_backend.subprocess, "Popen", _FakeProc)
+    code, _tail = douyin_backend.run_cli(tmp_path, ["-c", "x"], None, 1.0)
+    assert code == 0
+    assert captured["env"]["PYTHONIOENCODING"] == "utf-8"
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("https://www.douyin.com/user/MS4wLjAB123",
+         "https://www.douyin.com/user/MS4wLjAB123"),
+        ("素材 https://www.douyin.com/user/abc123 搬运",
+         "https://www.douyin.com/user/abc123"),
+        ("解压视频", None),
+        ("https://www.douyin.com/video/123", None),
+    ],
+)
+def test_douyin_extract_home_url(raw: str, expected: str | None) -> None:
+    assert douyin_backend.extract_home_url(raw) == expected
+
+
+def test_douyin_meta_from_aweme_drops_missing_id() -> None:
+    assert douyin_backend.meta_from_aweme({"desc": "无id"}, "u") is None
+
+
+def test_douyin_read_self_sec_uid(tmp_path: Path) -> None:
+    (tmp_path / "self_user.txt").write_text(
+        "https://www.douyin.com/user/MS4wLjABSELF?a=x", encoding="utf-8",
+    )
+    assert douyin_backend.read_self_sec_uid(tmp_path) == "MS4wLjABSELF"
+    assert douyin_backend.read_self_sec_uid(tmp_path / "none") == ""
+
+
+def test_douyin_refresh_nickname_sets_config(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+    (tmp_path / "self_user.txt").write_text(
+        "https://www.douyin.com/user/MS4wLjABSELF", encoding="utf-8",
+    )
+
+    def fake_run_cli(
+        root: Path, args: list[str], token: object, timeout: float,
+    ) -> tuple[int, list[str]]:
+        run_dir = Path(args[args.index("-p") + 1])
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "2026-01-01_自己_1_data.json").write_text(json.dumps({
+            "aweme_id": "1", "author": {"nickname": "解压小达人"},
+        }), encoding="utf-8")
+        return 0, ["done"]
+
+    monkeypatch.setattr(douyin_backend, "run_cli", fake_run_cli)
+    assert plugin.refresh_nickname() == "解压小达人"
+    assert memory_config.get("douyin_nickname") == "解压小达人"
+
+
+def test_douyin_refresh_nickname_degrades_without_self_file(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=True)
+    monkeypatch.setattr(
+        douyin_backend, "run_cli",
+        lambda root, args, token, timeout: (_ for _ in ()).throw(
+            AssertionError("不应触发子进程"),
+        ),
+    )
+    assert plugin.refresh_nickname() == ""
+
+
+def test_douyin_has_real_cookies_requires_login_cookie(tmp_path: Path) -> None:
+    """匿名会话（只有 msToken/ttwid）不得误判为已登录。"""
+    anon = (
+        'start_time: ""\nend_time: ""\ncookies:\n'
+        f"  msToken: {'x' * 40}\n  ttwid: 1%7Cabc\n"
+    )
+    (tmp_path / "config_plugin.yml").write_text(anon, encoding="utf-8")
+    assert douyin_backend.has_real_cookies(tmp_path) is False
+    (tmp_path / "config_plugin.yml").write_text(
+        anon + f"  sessionid: {'y' * 40}\n", encoding="utf-8",
+    )
+    assert douyin_backend.has_real_cookies(tmp_path) is True
+
+
+def test_douyin_refresh_nickname_rolls_back_stale_flag(
+    memory_config: ConfigService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """文件态 Cookie 被清理后，启动同步须回滚残留的已登录标记与昵称。"""
+    memory_config.set("douyin_cookies_set", True)
+    memory_config.set("douyin_nickname", "旧昵称")
+    plugin = _douyin_plugin(memory_config)
+    _douyin_vendor(tmp_path, monkeypatch, logged_in=False)
+    assert plugin.refresh_nickname() == ""
+    assert memory_config.get("douyin_cookies_set") is False
+    assert memory_config.get("douyin_nickname") == ""
+
+
+def test_douyin_login_reports_without_vendor(
+    memory_config: ConfigService, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = _douyin_plugin(memory_config)
+    monkeypatch.setattr(
+        douyin_backend, "resolve_vendor_root", lambda override="": None,
+    )
+    results: list[tuple[bool, str]] = []
+    plugin.start_cookie_login(lambda ok, reason: results.append((ok, reason)))
+    assert len(results) == 1
+    ok, reason = results[0]
+    assert ok is False
+    assert "未找到内置下载器" in reason
 
 
 # ================= PluginManager =================
@@ -429,8 +1048,8 @@ def test_coordinator_isolation_and_merge(qtbot, tmp_path: Path) -> None:
         coord.search_multi(["地毯"], SearchFilters(duration_max_s=20.0))
     result = blocker.args[0]
     assert result.keyword == "地毯"
-    # bad 抛错隔离进 unavailable；down 可用性预检失败同样入列
-    assert ("bad", ERR_PLG_SCHEMA_CHANGED) in result.unavailable_platforms
+    # bad 抛错隔离进 unavailable（码+明细一起给 UI）；down 可用性预检失败同样入列
+    assert ("bad", f"{ERR_PLG_SCHEMA_CHANGED} 结构变更") in result.unavailable_platforms
     assert ("down", "PLG010") in result.unavailable_platforms
     assert good.search_calls == 1
     assert down.search_calls == 0

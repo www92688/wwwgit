@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -44,6 +45,23 @@ class ArchiveService:
             return lock
 
     # ---- 命名 ----
+    # 关键词直接进文件系统（目录/文件名）：URL 形态关键词（如抖音主页链接，
+    # 含 : / ? &）不经处理在 Windows 上建目录必失败——入盘前统一净化
+    _FS_UNSAFE = re.compile(r'[\\/:*?"<>|\r\n\t ]+')
+    _URL_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://")
+    _FS_KW_MAX = 40
+
+    @classmethod
+    def fs_keyword(cls, keyword: str) -> str:
+        """关键词 → 文件系统安全形态（同一关键词恒等映射：跨日期归同一目录，
+        序号计数才连续）。URL 取路径末段作可读标识（如抖音 sec_uid），
+        其余替换非法字符；空结果与超长均有兜底。"""
+        text = keyword.strip()
+        if cls._URL_SCHEME.match(text):
+            text = text.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1] or text
+        cleaned = cls._FS_UNSAFE.sub("_", text).strip("._")
+        return cleaned[: cls._FS_KW_MAX] or "unnamed"
+
     def next_filename(
         self,
         platform: str,
@@ -52,6 +70,7 @@ class ArchiveService:
         ext: str = ".mp4",
     ) -> tuple[Path, str]:
         """`平台_关键词_三位序号.ext`；序号=max(磁盘现有，索引计数)+1，冲突递增兜底。"""
+        keyword = self.fs_keyword(keyword)
         target_dir = self._category_dir_for(keyword) / date_str
         prefix = f"{platform}_{keyword}_"
         disk_max = 0
@@ -83,6 +102,7 @@ class ArchiveService:
         token: CancellationToken | None = None,
     ) -> Path:
         """resolve_category → 三级目录 → 序号命名 → 原子移动 → 只读 → 索引。"""
+        keyword = self.fs_keyword(keyword)   # URL 关键词（抖音主页）转安全形态
         wd = self._wd.workdir()
         category = self._categories.category_of(keyword)
         if category is None:

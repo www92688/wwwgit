@@ -93,3 +93,36 @@ def test_all_sources_fail_raises(tmp_path, monkeypatch) -> None:
     with pytest.raises(AppError):
         dl.download("subtitle")
     assert dl.exists("subtitle") is False
+
+
+# ---------- 手动导入（无公开下载源模型） ----------
+def test_import_file_copies_and_verifies(tmp_path) -> None:
+    dl = ModelDownloader(http=None, base_dir=tmp_path)
+    src = tmp_path / "elsewhere.onnx"
+    src.write_bytes(b"model-bytes")
+    out = dl.import_file("watermark", src)
+    assert out == tmp_path / "watermark_yolov8n_640.onnx"
+    assert out.read_bytes() == b"model-bytes"
+    assert not Path(f"{out}.importing").exists()
+    assert dl.exists("watermark")
+
+
+def test_import_file_missing_source_raises(tmp_path) -> None:
+    dl = ModelDownloader(http=None, base_dir=tmp_path)
+    with pytest.raises(AppError):
+        dl.import_file("watermark", tmp_path / "nope.onnx")
+    assert not (tmp_path / "watermark_yolov8n_640.onnx").exists()
+
+
+def test_import_contract_failure_discards_copy(tmp_path, monkeypatch) -> None:
+    def fail(self, key, path):
+        raise AppError("AI002", "契约不符")
+
+    monkeypatch.setattr(ModelDownloader, "_check_contract", fail)
+    src = tmp_path / "bad.onnx"
+    src.write_bytes(b"junk")
+    dl = ModelDownloader(http=None, base_dir=tmp_path)
+    with pytest.raises(AppError):
+        dl.import_file("watermark", src)
+    assert not (tmp_path / "watermark_yolov8n_640.onnx").exists()
+    assert not (tmp_path / "watermark_yolov8n_640.onnx.importing").exists()

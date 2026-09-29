@@ -149,11 +149,15 @@ class PlatformPlugin(ABC):
         headers: dict[str, str] | None = None,
         timeout: tuple[float, float] = (5.0, 30.0),
     ) -> requests.Response:
-        """限频 + GET；网络异常统一映射 PLG010（不向协调器泄漏 NET 细节）。"""
+        """限频 + GET；网络异常统一映射 PLG010（不向协调器泄漏 NET 细节）。
+
+        经 HttpClient._send 统一入口：本机代理死掉（Clash 关闭残留）时
+        自动直连兜底，可直连的免费素材站不因死代理整体不可用。
+        """
         self._rate_acquire()
         try:
-            return self._http.session.get(
-                url, params=params, headers=headers, timeout=timeout
+            return self._http.send(
+                "get", url, params=params, headers=headers, timeout=timeout
             )
         except requests.exceptions.Timeout as exc:
             raise AppError(ERR_PLG_UNAVAILABLE, "平台连接超时", cause=exc) from exc
