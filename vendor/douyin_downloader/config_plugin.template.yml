@@ -1,0 +1,113 @@
+# 抖音采集插件专用运行配置模板（vendor 内置下载器使用）
+# ych 插件每次运行前会把本文件复制为 _run_config.yml 并替换：
+#   __DOUYIN_HOME_URL__（博主主页链接）/ number.post / start_time / end_time
+# Cookie 由「登录抖音」流程经 tools.cookie_fetcher 写回本文件
+link:
+  - __DOUYIN_HOME_URL__
+
+path: ./Downloaded/
+
+# 插件两阶段：搜索阶段只取元数据（video 关、json 开），下载阶段取视频本体
+video: false
+music: false
+cover: false
+avatar: false
+json: true
+
+start_time: ""
+end_time: ""
+
+folderstyle: true
+
+# 文件/目录命名模板。{id} 为作品 aweme_id，插件按它匹配已下载文件
+filename_template: "{date}_{title}_{id}"
+folder_template: "{date}_{title}_{id}"
+
+author_dir: "nickname"
+
+download_pinned: false
+
+author_url: false
+
+homepage_screenshot: false
+
+mode:
+  - post
+
+number:
+  post: 1
+  like: 0
+  allmix: 0
+  mix: 0
+  music: 0
+  collect: 0
+  collectmix: 0
+
+redownload_missing_files: true
+
+increase:
+  post: true
+  like: true
+  allmix: true
+  mix: true
+  music: true
+
+thread: 2
+retry_times: 3
+proxy: ""
+database: true
+database_path: dy_downloader.db
+
+video_quality: highest
+
+progress:
+  quiet_logs: true
+
+transcript:
+  enabled: false
+  model: gpt-4o-mini-transcribe
+  output_dir: ""
+  response_formats:
+    - txt
+    - json
+  api_url: https://api.openai.com/v1/audio/transcriptions
+  api_key_env: OPENAI_API_KEY
+  api_key: ""
+
+browser_fallback:
+  enabled: true
+  headless: false
+  # 滚屏上限调小（实测 20 条作品 60 次滚动绰绰有余，15s 内完成）：
+  # 抖音信息流会持续出新内容，240 次滚动会让回补阶段滚几分钟，
+  # 再叠加偶发风控就会吃满宿主超时（表现为"搜索卡住"后超时失败）
+  max_scrolls: 60
+  idle_rounds: 4
+  wait_timeout_seconds: 600
+
+comments:
+  enabled: false
+  include_replies: false
+  max_comments: 0
+  page_size: 20
+
+live:
+  max_duration_seconds: 0
+  chunk_size: 65536
+  idle_timeout_seconds: 30
+
+notifications:
+  enabled: false
+  on_success: true
+  on_failure: true
+  providers: []
+
+server:
+  max_jobs: 500
+  job_ttl_seconds: 86400
+
+cookies:
+  msToken: YOUR_MS_TOKEN
+  ttwid: YOUR_TTWID
+  odin_tt: YOUR_ODIN_TT
+  passport_csrf_token: YOUR_CSRF_TOKEN
+  sid_guard: YOUR_SID_GUARD

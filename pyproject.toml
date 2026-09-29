@@ -50,6 +50,19 @@ dev = [
     "ruff",
     "pyinstaller>=6.0",
 ]
+# 内置抖音下载器（vendor/douyin_downloader）的子进程运行依赖
+douyin = [
+    "aiohttp>=3.9",
+    "httpx>=0.25",
+    "aiofiles>=23.2",
+    "aiosqlite>=0.19",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+    "python-dateutil>=2.8",
+    "gmssl>=3.2",
+    "imageio-ffmpeg==0.6.0",
+    "playwright>=1.40",
+]
 
 [project.scripts]
 ych = "ych.app:main"
