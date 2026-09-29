@@ -3,6 +3,52 @@
 > 上一轮两项修复（排版 / 模型下载）已完成待提交；本轮「去重没反馈」已修复完毕。
 > 9-13 二轮：「分析重复度假 0 分」根因修复（本地素材池兜底）+ 去重前后真实对比，待用户确认后一并提交。
 
+## 2026-09-27 晚：采集页五项反馈修复 + 真实链路验证（未提交）
+
+用户五项反馈全部修复，并按用户要求做了真实（非 mock）重复测试：
+
+**修复清单**
+1. **GBK 崩溃（"搜索后提示不可用"的真凶之一）**：`run_cli` 子进程在中文
+   Windows 管道下默认 GBK 标准流，vendored CLI 打印 ℹ️ 即
+   UnicodeEncodeError 崩溃。修复：子进程环境强制 `PYTHONIOENCODING=utf-8`，
+   父进程按 utf-8 解码（`_douyin_backend._cli_env`）。
+2. **滚动参数运行态失配**：模板已调优 60/4 但用户机 `config_plugin.yml`
+   残留 240/8（read_live_config 不会回读模板）→ 滚动没完吃满 300s 超时。
+   修复：`build_run_config` 按代码常量覆写 max_scrolls/idle_rounds。
+3. **拉空重试**：抖音间歇性风控/限流会让 CLI 退出码 0 但作品列表拉空
+   （实测 96s 全程滚动 0 产出）。修复：`DouyinPlugin.search` 拉空退避
+   20s 重试一次（`_EMPTY_RESULT_RETRIES/_EMPTY_RETRY_BACKOFF_S`），
+   硬失败不重试。
+4. **死代理自动直连兜底**：用户机 Clash 关闭后，HttpClient 硬走
+   127.0.0.1:7897 死代理 → Pexels/Pixabay 全灭（18:55 日志实证）。
+   修复：HttpClient 统一 `send()` 入口（get/post/head/probe 全走它），
+   ProxyError → 标记 5 分钟死亡窗口并直连重试，窗口自愈；代理配置变更
+   清窗口。`plugin_base.api_get` 改走统一入口。
+5. **UI 三处**：
+   - 采集页关键词输入与历史合并为一个可编辑下拉（长 URL 历史项不再把
+     输入框挤成 40px）；搜索完成后历史即时刷新。
+   - 结果列表「暂不可用平台」带中文原因（码→文案映射 + 明细截断 +
+     Tooltip 全文）；协调器把 AppError 明细随码一起传给 UI。
+   - 去重工作台待去重素材由扁平列表改为与预处理一致的三级树
+     （复用 AssetTree；app.py 喂完整 AssetRow；纯路径串归「未分类」组）。
+   - 登录态小字补充 Tooltip（Cookie 本机持久，重启无需重登）。
+6. i18n 补齐（上次会话 lupdate 漏扫 main_window.py 导致 251 条 vanished，
+   已按全量 UI 文件重跑 lupdate→fill→lrelease，417 条全 finished）；
+   settings_page 协议补 `spec`（上次会话遗留 mypy 错误）。
+
+**真实测试记录（2026-09-27 晚，用户主页链接）**
+- Pexels/Pixabay 直连（代理关）：各 30 条 × 4 次 ✓
+- Pexels/Pixabay 死代理开启（内存配置模拟 Clash 未运行，真 Key）：
+  自动直连兜底各 30 条 ✓
+- 抖音主页链接（插件全路径）：python 子进程 18 条 × 2 次 ✓（其中一次
+  为拉空重试后成功）；pythonw 子进程（模拟应用启动）18 条 ✓；
+  另一次持续风控重试仍空（服务端限流，属平台侧）
+- 手动 CLI 对照：18/18 成功（配置与插件路径一致）
+- 单测 429 全过；ruff/mypy 干净
+
+**遗留**：抖音持续风控窗口（约数分钟）内重试也无效，报错文案已明示
+"请稍后再试/完成浏览器验证"；用户机代理设置当前为关闭状态。
+
 ## 2026-09-18 项目规范落地（已提交 9679189 / 5a2a65e）
 
 按项目自身约定（CONTRIBUTING.md + design/max_design.md）补齐工程规范，未改动业务逻辑：
