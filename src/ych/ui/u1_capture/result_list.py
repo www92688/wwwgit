@@ -3,7 +3,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QCoreApplication, QPointF, QSize, Qt, Signal
+from PySide6.QtCore import (
+    QT_TRANSLATE_NOOP,
+    QCoreApplication,
+    QPointF,
+    QSize,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
@@ -33,6 +40,22 @@ from ych.ui.u6_common.toast import Toast
 
 _THUMB_ROLE = int(Qt.ItemDataRole.UserRole + 1)   # item → 缩略图缓存键
 _THUMB_SIZE = QSize(76, 46)
+
+# 可用性原因码 → 中文说明（码在 core 层稳定存在，明细可读性由本表保证）。
+# QT_TRANSLATE_NOOP 供 lupdate 提取，运行时返回原文本身
+_REASON_LABELS: dict[str, str] = {
+    "not_implemented": str(QT_TRANSLATE_NOOP("ResultList", "占位未开放")),
+    "PLG001": str(QT_TRANSLATE_NOOP("ResultList", "未登录或未配置 Key")),
+    "PLG002": str(QT_TRANSLATE_NOOP("ResultList", "Key 无效")),
+    "PLG003": str(QT_TRANSLATE_NOOP("ResultList", "触发限频")),
+    "PLG010": str(QT_TRANSLATE_NOOP("ResultList", "暂不可用")),
+    "PLG020": str(QT_TRANSLATE_NOOP("ResultList", "接口结构变更")),
+    "NET001": str(QT_TRANSLATE_NOOP("ResultList", "连接超时")),
+    "NET002": str(QT_TRANSLATE_NOOP("ResultList", "域名解析失败")),
+    "NET003": str(QT_TRANSLATE_NOOP("ResultList", "代理不可用")),
+    "NET010": str(QT_TRANSLATE_NOOP("ResultList", "外网不可达")),
+}
+_REASON_DETAIL_MAX = 48   # 明细过长截断，全文进 Tooltip
 
 
 def _placeholder_icon() -> QIcon:
@@ -162,15 +185,31 @@ class ResultList(QWidget):
             if item.data(_THUMB_ROLE) == key:
                 item.setIcon(icon)
 
+    def _reason_display(self, reason: str) -> str:
+        """原因码 → 中文说明；带明细时"说明：明细"拼出可读原因。"""
+        code, _, detail = reason.partition(" ")
+        label = self.tr(_REASON_LABELS.get(code, ""))
+        if not label:
+            return reason if reason else self.tr("未知原因")
+        if detail:
+            if len(detail) > _REASON_DETAIL_MAX:
+                detail = detail[:_REASON_DETAIL_MAX] + "…"
+            return f"{label}：{detail}"
+        return label
+
     def _add_unavailable_note(
         self, unavailable: list[tuple[str, str]] | None,
     ) -> None:
         if not unavailable:
             return
+        parts: list[str] = []
+        tips: list[str] = []
+        for pid, reason in unavailable:
+            shown = self._reason_display(reason)
+            parts.append(f"{platform_label(pid)}（{shown}）")
+            tips.append(f"{platform_label(pid)}：{self._reason_display(reason)}")
         note = QListWidgetItem(
-            self.tr("暂不可用平台：{}").format(
-                "、".join(pid for pid, _r in unavailable),
-            ),
+            self.tr("暂不可用平台：{}").format("、".join(parts)),
         )
         note.setFlags(
             note.flags()
@@ -178,6 +217,7 @@ class ResultList(QWidget):
             & ~Qt.ItemFlag.ItemIsSelectable
         )
         note.setForeground(QColor("#9aa3b2"))
+        note.setToolTip("\n".join(tips))
         self.list.addItem(note)
 
     def _card_text(self, meta: VideoMeta) -> str:

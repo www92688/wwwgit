@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Protocol
 
 from PySide6.QtCore import Qt, QUrl, Signal
@@ -11,8 +12,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QMenu,
     QMessageBox,
     QPushButton,
@@ -22,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from ych.core.m3_dedup.techniques.registry import TechniqueRegistry
+from ych.ui.u2_preprocess.asset_tree import AssetTree
 from ych.ui.u3_dedup.report_view import ReportView
 from ych.ui.u3_dedup.scheme_editor import SchemeEditor
 from ych.ui.u6_common.context_actions import (
@@ -180,16 +180,16 @@ class DedupPage(QWidget):
 
         split = QHBoxLayout()
 
-        # ---- 左：素材勾选列表 ----
+        # ---- 左：素材勾选树（与预处理工作台一致：大类/关键词/日期分级）----
         left_box = QVBoxLayout()
         self._asset_label = QLabel(self.tr("待去重素材"))
         left_box.addWidget(self._asset_label)
-        self.asset_list = QListWidget()
+        self.asset_tree = AssetTree()
         self._empty = attach_empty_state(
-            self.asset_list, self.tr("暂无素材"),
+            self.asset_tree, self.tr("暂无素材"),
             self.tr("先到「采集工作台」下载素材，\n或把视频文件放入工作目录"),
         )
-        left_box.addWidget(self.asset_list, 1)
+        left_box.addWidget(self.asset_tree, 1)
         self.btn_all = QPushButton(self.tr("全选"))
         self.btn_all.setObjectName("secondaryBtn")
         self.btn_all.clicked.connect(self._select_all)
@@ -269,13 +269,13 @@ class DedupPage(QWidget):
         self.report_view = ReportView()
         root.addWidget(self.report_view, 1)
 
-        # 勾选数量反馈到开始按钮
-        self.asset_list.itemChanged.connect(lambda _item: self._refresh_btns())
-        # 右键：定位/复制/系统播放器打开
-        self.asset_list.setContextMenuPolicy(
+        # 勾选数量反馈到开始按钮（树勾选变化 → selection_changed）
+        self.asset_tree.selection_changed.connect(self._refresh_btns)
+        # 右键：定位/复制/系统播放器打开（仅叶子素材）
+        self.asset_tree.setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu,
         )
-        self.asset_list.customContextMenuRequested.connect(
+        self.asset_tree.customContextMenuRequested.connect(
             self._show_asset_menu,
         )
         # 初始套用默认档（中度），保证编辑器非空；有记忆则恢复上次档位
@@ -319,43 +319,43 @@ class DedupPage(QWidget):
         self.btn_start.setEnabled(n > 0)
 
     # ---- 数据 ----
-    def set_assets(self, paths: list[str]) -> None:
-        self.asset_list.blockSignals(True)
-        self.asset_list.clear()
-        for p in paths:
-            # 只显示文件名，完整路径放 Tooltip（长路径更易读）
-            item = QListWidgetItem(Path(p).name)
-            item.setData(Qt.ItemDataRole.UserRole, p)
-            item.setToolTip(p)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked)
-            self.asset_list.addItem(item)
-        self.asset_list.blockSignals(False)
-        refresh_empty = getattr(self.asset_list, "_refresh_empty_state", None)
+    def set_assets(self, paths_or_rows: list[Any]) -> None:
+        """喂入素材：AssetRow 行建大类/关键词/日期三级树；纯路径串归入
+        「未分类」组（与预处理工作台同一套层级展示，避免全部平铺滚动）。"""
+        rows = [self._as_row(x) for x in paths_or_rows]
+        self.asset_tree.set_assets(rows)
+        # 与旧扁平列表行为一致：新素材默认全选
+        self.asset_tree.select_all(True)
+        refresh_empty = getattr(self.asset_tree, "_refresh_empty_state", None)
         if refresh_empty is not None:
             refresh_empty()
         self._refresh_btns()
 
+    @staticmethod
+    def _as_row(x: Any) -> Any:
+        if isinstance(x, str):
+            return SimpleNamespace(
+                path=x, category=None, keyword=None, date_str=None,
+                duration_s=0, width=0, height=0,
+            )
+        return x
+
     def checked_paths(self) -> list[str]:
-        out = []
-        for i in range(self.asset_list.count()):
-            item = self.asset_list.item(i)
-            if item.checkState() == Qt.CheckState.Checked:
-                p = item.data(Qt.ItemDataRole.UserRole)
-                out.append(str(p) if p else item.text())
-        return out
+        return [str(p) for p in self.asset_tree.checked_files()]
 
     def _show_asset_menu(self, pos: Any) -> None:
-        item = self.asset_list.itemAt(pos)
-        if item is None:
+        item = self.asset_tree.itemAt(pos)
+        if item is None or item.childCount() > 0:
+            return   # 分类/关键词节点与非树区域不给菜单
+        path = str(item.data(0, Qt.ItemDataRole.UserRole) or "")
+        if not path:
             return
-        path = str(item.data(Qt.ItemDataRole.UserRole) or item.text())
         menu = QMenu(self)
         act_reveal = menu.addAction(self.tr("打开所在文件夹"))
         act_copy = menu.addAction(self.tr("复制路径"))
         act_play = menu.addAction(self.tr("用系统播放器打开"))
         act_play.setEnabled(Path(path).is_file())   # 文件已不存在则置灰
-        chosen = menu.exec(self.asset_list.viewport().mapToGlobal(pos))
+        chosen = menu.exec(self.asset_tree.viewport().mapToGlobal(pos))
         if chosen is act_reveal:
             if not reveal_in_file_manager(path):
                 Toast.show_message(
@@ -455,14 +455,9 @@ class DedupPage(QWidget):
 
     # ---- 槽 ----
     def _select_all(self) -> None:
-        # blockSignals：逐条 setCheckState 会各触发一次 itemChanged→
-        # _refresh_btns，量大时明显卡顿；收尾统一刷一次
-        self.asset_list.blockSignals(True)
-        try:
-            for i in range(self.asset_list.count()):
-                self.asset_list.item(i).setCheckState(Qt.CheckState.Checked)
-        finally:
-            self.asset_list.blockSignals(False)
+        # AssetTree.select_all 内部 blockSignals 批量置勾，收尾只发一次
+        # selection_changed（避免逐条 itemChanged 触发刷新卡顿）
+        self.asset_tree.select_all(True)
         self._refresh_btns()
 
     def _current_preset(self) -> str:
@@ -526,6 +521,7 @@ class DedupPage(QWidget):
         self._asset_label.setText(self.tr("待去重素材"))
         self._scheme_label.setText(self.tr("去重方案"))
         self.btn_all.setText(self.tr("全选"))
+        self.asset_tree.retranslate()
         self._empty.set_texts(
             self.tr("暂无素材"),
             self.tr("先到「采集工作台」下载素材，\n或把视频文件放入工作目录"),

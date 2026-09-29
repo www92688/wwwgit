@@ -1,7 +1,7 @@
 # 网络检测面板单元测试：FakeHttp 下结果回填、结论、非阻塞（全后台线程）
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -100,9 +100,8 @@ def test_auto_detect_proxy_fills_and_enables(
     page.show()
     page.proxy_auto_btn.click()
     qtbot.waitUntil(
-        lambda: page.proxy_host.text() == "127.0.0.1", timeout=5000,
+        lambda: page.proxy_edit.text() == "127.0.0.1:7890", timeout=5000,
     )
-    assert page.proxy_port.text() == "7890"
     assert page.proxy_check.isChecked() is True
     assert config.get("proxy_enabled") is True
     assert config.get("proxy_host") == "127.0.0.1"
@@ -126,3 +125,117 @@ def test_auto_detect_proxy_not_found_hint(
         lambda: "未检测到可用代理" in page.proxy_status.text(), timeout=5000,
     )
     assert page.proxy_check.isChecked() is False
+
+
+# ---------- 代理地址单框：整段粘贴 → 失焦归一化提交 ----------
+def test_proxy_address_commit_parses_full_url(
+    qtbot: Any,
+) -> None:
+    """粘贴 "http://IP:端口" 失焦后拆解入库并归一化显示，不再静默停用。"""
+    from ych.services.s5_base.config_service import ConfigService
+    from ych.ui.u5_settings.settings_page import SettingsPage
+
+    config = ConfigService()
+    page = SettingsPage(config, http=FakeHttp())
+    qtbot.addWidget(page)
+    page.show()
+    page.proxy_edit.setText("http://120.25.100.196:3000")
+    page.proxy_edit.editingFinished.emit()
+    assert config.get("proxy_host") == "120.25.100.196"
+    assert config.get("proxy_port") == 3000
+    assert page.proxy_edit.text() == "120.25.100.196:3000"
+    assert "已保存" in page.proxy_status.text()
+
+
+def test_proxy_address_commit_missing_port_hint(qtbot: Any) -> None:
+    from ych.services.s5_base.config_service import ConfigService
+    from ych.ui.u5_settings.settings_page import SettingsPage
+
+    config = ConfigService()
+    page = SettingsPage(config, http=FakeHttp())
+    qtbot.addWidget(page)
+    page.show()
+    page.proxy_edit.setText("127.0.0.1")
+    page.proxy_edit.editingFinished.emit()
+    assert "缺少端口" in page.proxy_status.text()
+    assert config.get("proxy_port") == 0
+
+
+def test_proxy_address_commit_invalid_keeps_hint(qtbot: Any) -> None:
+    from ych.services.s5_base.config_service import ConfigService
+    from ych.ui.u5_settings.settings_page import SettingsPage
+
+    page = SettingsPage(ConfigService(), http=FakeHttp())
+    qtbot.addWidget(page)
+    page.show()
+    page.proxy_edit.setText("http://")
+    page.proxy_edit.editingFinished.emit()
+    assert "无法识别" in page.proxy_status.text()
+
+
+# ---------- API Key 显示/隐藏切换 ----------
+def test_password_visibility_toggle(qtbot: Any) -> None:
+    from PySide6.QtWidgets import QLineEdit
+
+    from ych.services.s5_base.config_service import ConfigService
+    from ych.ui.u5_settings.settings_page import SettingsPage
+
+    page = SettingsPage(ConfigService(), http=FakeHttp())
+    qtbot.addWidget(page)
+    for edit, toggle in (
+        (page.ai_key_edit, page._ai_key_toggle),
+        (page.stock_key_edit, page._stock_key_toggle),
+    ):
+        assert edit.echoMode() == QLineEdit.EchoMode.Password
+        toggle.setChecked(True)
+        assert edit.echoMode() == QLineEdit.EchoMode.Normal
+        toggle.setChecked(False)
+        assert edit.echoMode() == QLineEdit.EchoMode.Password
+
+
+# ---------- AI 模型表：无下载源行为「导入…」而非禁用 ----------
+class _FakeSpec:
+    def __init__(self, key: str, file: str, desc: str, urls: list[str]) -> None:
+        self.key = key
+        self.file = file
+        self.desc = desc
+        self.urls = urls
+
+
+class _FakeDl:
+    progress: ClassVar[dict[str, float]] = {}
+
+    def all_specs(self) -> list[_FakeSpec]:
+        return [
+            _FakeSpec("subtitle", "sub.onnx", "字幕", ["u1"]),
+            _FakeSpec("watermark", "wm.onnx", "水印", []),
+        ]
+
+    def exists(self, key: str) -> bool:
+        return False
+
+    def size_of(self, key: str) -> int:
+        return 0
+
+    def path_of(self, key: str) -> Any:
+        from pathlib import Path
+
+        return Path("x")
+
+
+def test_model_rows_no_url_spec_offers_import(qtbot: Any) -> None:
+    """无公开下载源的模型行不得是禁用按钮：应为可点的「导入…」。"""
+    from ych.services.s5_base.config_service import ConfigService
+    from ych.ui.u5_settings.settings_page import SettingsPage
+
+    page = SettingsPage(
+        ConfigService(), http=FakeHttp(), model_downloader=_FakeDl(),
+    )
+    qtbot.addWidget(page)
+    table = page.model_table
+    assert table.rowCount() == 2
+    dl_btn = page._model_dl_cells["subtitle"]
+    imp_btn = page._model_dl_cells["watermark"]
+    assert dl_btn.text() == "下载" and dl_btn.isEnabled()
+    assert imp_btn.text() == "导入…" and imp_btn.isEnabled()
+    assert "导入" in table.item(1, 2).text()

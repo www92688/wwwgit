@@ -23,6 +23,48 @@ EN: dict[tuple[str, str], str] = {
     ("CapturePage", "外网检测失败：{msg}"): "Foreign network check failed: {msg}",
     ("CapturePage", "搜索发起失败：{msg}"): "Failed to start the search: {msg}",
     ("CapturePage", "打开文件管理器失败"): "Failed to open the file manager",
+    ("CapturePage", "国内平台（抖音可用，其余为占位）"):
+        "CN platforms (Douyin available; others are placeholders)",
+    ("CapturePage", "登录抖音"): "Log in to Douyin",
+    ("CapturePage", "弹出浏览器登录抖音并保存 Cookie；登录状态长期有效，"
+                    "无需每次采集都登录"):
+        "Opens a browser to log in to Douyin and save cookies; "
+        "the login persists, no need to log in every time",
+    ("CapturePage", "登录状态已保存在本机，重启应用无需重新登录；"
+                    "Cookie 失效时会提示重新登录"):
+        "Login state is saved locally; no re-login after restart. "
+        "You will be asked to log in again if cookies expire",
+    ("CapturePage", "在关键词框粘贴博主主页链接（douyin.com/user/…）后搜索"):
+        "Paste a creator homepage link (douyin.com/user/…) "
+        "into the keyword box, then search",
+    ("CapturePage", "抖音登录功能未装配"): "Douyin login is not wired up",
+    ("CapturePage", "已弹出登录窗口：在浏览器完成登录后，回到弹出的控制台窗口按回车"):
+        "Login window opened: finish login in the browser, then press "
+        "Enter in the popped-up console window",
+    ("CapturePage", "抖音登录成功，现在可以粘贴博主主页链接搜索了"):
+        "Douyin login succeeded; paste a creator homepage link to search",
+    ("CapturePage", "已弹出登录窗口：在浏览器中完成抖音登录后会自动保存，无需按回车"):
+        "Login window opened: Douyin login in the browser saves "
+        "automatically once completed; no need to press Enter",
+    ("CapturePage", "登录窗口打开中…"): "Opening login window…",
+    ("CapturePage", "抖音登录未完成：{msg}"): "Douyin login not completed: {msg}",
+    ("CapturePage", "已登录：{name}"): "Logged in: {name}",
+    ("CapturePage", "已登录抖音（长期有效）"): "Logged in to Douyin (persists)",
+    ("CapturePage", " · 风控冷却中（{hint}）"): " · Risk-control cooldown ({hint})",
+    ("CapturePage", "\n今日抖音搜索额度：{used}/{limit}（密集采集容易触发"
+                    "平台风控，被拒后需等待冷却）"):
+        "\nToday's Douyin search quota: {used}/{limit} (dense crawling "
+        "easily triggers platform risk control; wait out the cooldown)",
+    ("CapturePage", "今日抖音搜索额度已用 {used}/{limit}，"
+                    "密集采集容易触发平台风控，请注意节制"):
+        "Today's Douyin search quota used {used}/{limit}; dense crawling "
+        "easily triggers platform risk control, please slow down",
+    ("CapturePage", "正在搜索中，请稍候…"): "A search is already running, please wait…",
+    ("CapturePage", "搜索中 {s}s…"): "Searching… {s}s",
+    ("CapturePage", "搜索失败：{msg}"): "Search failed: {msg}",
+    ("SettingsPage", "模型下载组件未装配"): "Model downloader is not available",
+    ("SettingsPage", "已有模型在下载中，请先等待或取消"):
+        "A model download is already in progress; wait or cancel it first",
     ("DedupPage", "打开文件管理器失败"): "Failed to open the file manager",
     ("DedupPage", "该批任务已提交，请勿重复点击"):
         "This batch has been submitted; no need to click again",
@@ -187,6 +229,17 @@ EN: dict[tuple[str, str], str] = {
     ("ResultList", "在顶部输入关键词，点击「搜索」试试"):
         "Enter a keyword above and click \"Search\"",
     ("ResultList", "暂不可用平台：{}"): "Temporarily unavailable platforms: {}",
+    ("ResultList", "占位未开放"): "placeholder, not enabled",
+    ("ResultList", "未登录或未配置 Key"): "not logged in / API key missing",
+    ("ResultList", "Key 无效"): "API key invalid",
+    ("ResultList", "触发限频"): "rate limited",
+    ("ResultList", "暂不可用"): "unavailable",
+    ("ResultList", "接口结构变更"): "site API changed",
+    ("ResultList", "连接超时"): "connection timed out",
+    ("ResultList", "域名解析失败"): "DNS resolution failed",
+    ("ResultList", "代理不可用"): "proxy unreachable",
+    ("ResultList", "外网不可达"): "internet unreachable",
+    ("ResultList", "未知原因"): "unknown reason",
     ("ResultList", "无水印"): "no watermark",
     ("ResultList", "有水印"): "watermarked",
     ("ResultList", "时长 {d}s"): "{d}s",
@@ -218,6 +271,49 @@ EN: dict[tuple[str, str], str] = {
     ("SettingsPage", "目录不可用"): "Directory Unavailable",
     ("SettingsPage", "该目录无法作为工作目录：\n{err}"):
         "This directory cannot be used as the working directory:\n{err}",
+    # 代理地址单框（可整段粘贴）
+    ("SettingsPage",
+     "可整段粘贴代理地址，支持 IP:端口 或 http://IP:端口"
+     "（Clash 默认 127.0.0.1:7890，v2rayN 默认 10809）。"
+     "VPN 的订阅链接不是代理地址。若 VPN 使用 TUN/系统代理模式，无需启用本项。"):
+        "Paste the full proxy address; both IP:port and http://IP:port work "
+        "(Clash default 127.0.0.1:7890, v2rayN default 10809). A VPN "
+        "subscription link is not a proxy address. If your VPN uses "
+        "TUN/system proxy mode, you don't need this.",
+    ("SettingsPage",
+     "无法识别的代理地址：{text}"
+     "（示例：127.0.0.1:7890 或 http://127.0.0.1:7890）"):
+        "Unrecognized proxy address: {text} "
+        "(examples: 127.0.0.1:7890 or http://127.0.0.1:7890)",
+    ("SettingsPage", "已清空代理地址。"): "Proxy address cleared.",
+    ("SettingsPage", "代理地址缺少端口：请写成 IP:端口（如 127.0.0.1:7890）。"):
+        "The proxy address has no port: use IP:port (e.g. 127.0.0.1:7890).",
+    ("SettingsPage", "已启用"): "Enabled",
+    ("SettingsPage", "已保存，勾选「启用代理」后生效"):
+        "Saved; tick \"Enable proxy\" to activate",
+    ("SettingsPage", "✓ {state}：http://{host}:{port}"):
+        "✓ {state}: http://{host}:{port}",
+    # API Key 明文/密文切换
+    ("SettingsPage", "显示 / 隐藏 API Key"): "Show / hide API Key",
+    # 模型手动导入（无公开下载源的自训练模型）
+    ("SettingsPage", "导入…"): "Import…",
+    ("SettingsPage", "缺失（无公开下载源；点「导入…」选择模型文件）"):
+        "Missing (no public download source; click \"Import…\" to pick the "
+        "model file)",
+    ("SettingsPage", "导入中：复制并校验模型契约…"):
+        "Importing: copying and verifying the model contract…",
+    ("SettingsPage", "选择模型文件"): "Select Model File",
+    ("SettingsPage", "ONNX 模型 (*.onnx);;所有文件 (*.*)"):
+        "ONNX models (*.onnx);;All files (*.*)",
+    ("SettingsPage", "{name} 导入成功并通过契约校验，即刻可用。"):
+        "{name} imported and verified; ready to use immediately.",
+    ("SettingsPage", "导入失败：{msg}（文件需与模型用途的输入/输出契约一致）"):
+        "Import failed: {msg} (the file must match the input/output "
+        "contract of its intended use)",
+    ("SettingsPage", "已有模型在下载/导入中，请先等待完成"):
+        "A model download/import is already in progress; wait for it to finish",
+    ("SettingsPage", "已有模型在导入中，请先等待完成"):
+        "A model import is already in progress; wait for it to finish",
     ("Toast", "查看日志"): "View logs",
     ("_Bridge", "预处理"): "Preprocess",
     ("_Bridge", "去重"): "Dedup",

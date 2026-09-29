@@ -178,7 +178,7 @@ class AssetTree(QTreeWidget):
             for i in range(item.childCount()):
                 _apply(item.child(i))
 
-        self.blockSignals(not checked)   # 全选操作后发一次变更即可
+        self.blockSignals(True)   # 批量置勾期间不发逐项信号，收尾统一发一次
         for top_i in range(self.topLevelItemCount()):
             _apply(self.topLevelItem(top_i))
         self.blockSignals(False)

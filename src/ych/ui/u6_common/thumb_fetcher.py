@@ -63,7 +63,9 @@ class ThumbFetcher(QObject):
             img = QImage()
             if not img.loadFromData(reply.readAll()):
                 return
-            img.save(str(_CACHE_DIR / f"{key}.jpg"), b"JPG")
+            # format 必须传 str：传 b"JPG"（bytes 位置参数）在 PySide6
+            # 6.7+ 会 ValueError，且抛在 emit 之前 → 缩略图永远不显示
+            img.save(str(_CACHE_DIR / f"{key}.jpg"), "JPG")
             self.fetched.emit(key, img)
         finally:
             reply.deleteLater()

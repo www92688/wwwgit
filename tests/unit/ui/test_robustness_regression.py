@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QListWidget
+from PySide6.QtWidgets import QTreeWidget
 
 from ych.services.s3_db.daos import AssetRow
 from ych.ui.u1_capture.capture_page import CapturePage
@@ -128,11 +128,14 @@ def test_dedup_select_all_refreshes_once(qtbot: Any) -> None:
     page = DedupPage()
     qtbot.addWidget(page)
     page.set_assets([f"C:/wd/{i}.mp4" for i in range(50)])
-    page.asset_list.item(0).setCheckState(Qt.CheckState.Unchecked)
+    # 纯路径串归入 未分类/未命名 一组；叶子即第 3 层
+    leaf0 = (page.asset_tree.topLevelItem(0).child(0).child(0))
+    assert leaf0 is not None
+    leaf0.setCheckState(0, Qt.CheckState.Unchecked)
     assert len(page.checked_paths()) == 49
 
     counter = {"n": 0}
-    page.asset_list.itemChanged.connect(lambda _i: counter.__setitem__(
+    page.asset_tree.itemChanged.connect(lambda _i, _c: counter.__setitem__(
         "n", counter["n"] + 1))
     page._select_all()
     assert counter["n"] == 0        # blockSignals：不逐条触发刷新
@@ -225,11 +228,11 @@ def test_failure_refresh_db_error_toasts(
 
 def test_dedup_empty_selection_toasts(qtbot: Any,
                                       monkeypatch: pytest.MonkeyPatch) -> None:
-    """冒烟：防连点新增状态在无参构造下可用；空选走 Toast。"""
+    """冒烟：素材树化后无参构造可用；空选走 Toast。"""
     spy = _ToastSpy(monkeypatch)
     page = DedupPage()
     qtbot.addWidget(page)
-    assert isinstance(page.asset_list, QListWidget)
+    assert isinstance(page.asset_tree, QTreeWidget)
     page._emit_dedup()        # 空选 → Toast，不抛错
     assert spy.texts()
 

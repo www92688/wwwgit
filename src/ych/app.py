@@ -58,6 +58,14 @@ def main() -> int:
 
     window = MainWindow(ctx)
 
+    def _start_douyin_login(on_finished: Callable[[bool, str], None]) -> None:
+        plugin = ctx.plugin_manager().get("douyin")
+        starter = getattr(plugin, "start_cookie_login", None)
+        if callable(starter):
+            starter(on_finished)
+        else:
+            on_finished(False, "未找到内置下载器目录（vendor/douyin_downloader）")
+
     capture = CapturePage(
         coordinator=ctx.search_coordinator(),
         download_manager=ctx.download_manager(),
@@ -65,7 +73,14 @@ def main() -> int:
         config=ctx.config(),
         ai_gateway=ctx.ai_gateway(),
         open_files=lambda: ctx.workdirs().workdir(),
+        douyin_login=_start_douyin_login,
     )
+    # 抖音登录完成 → 立即失效其可用性缓存（默认 TTL 10 分钟，不等过期）
+    def _invalidate_douyin(key: str, _value: object) -> None:
+        if key == "douyin_cookies_set":
+            ctx.plugin_manager().invalidate("douyin")
+
+    ctx.config().changed.connect(_invalidate_douyin)
     coordinator = ctx.search_coordinator()
     coordinator.search_finished.connect(capture.on_search_finished)
     dm = ctx.download_manager()
@@ -99,15 +114,34 @@ def main() -> int:
             with contextlib.suppress(ValueError):
                 _net_workers.remove(worker)
 
-        worker.done.connect(
-            lambda status: capture.confirm_foreign_enable(status == "ok")
-        )
+        # 绑定方法槽（queued 到 GUI 线程）：禁止 lambda 直连在后台线程碰 UI
+        worker.done.connect(capture.on_foreign_probe_done)
         worker.failed.connect(capture.on_foreign_probe_failed)
         worker.finished.connect(_cleanup)
         worker.finished.connect(worker.deleteLater)
         worker.start()
 
     capture.foreign_switch_requested.connect(_check_foreign_net_async)
+
+    # 抖音启动同步：登录态（文件态为准）→ 同步标记位并后台抓取昵称，
+    # 经 config.changed 驱动「登录抖音」按钮旁的昵称展示
+    def _sync_douyin_status() -> object:
+        plugin = ctx.plugin_manager().get("douyin")
+        refresher = getattr(plugin, "refresh_nickname", None)
+        return refresher() if callable(refresher) else None
+
+    douyin_worker = LlmWorker(_sync_douyin_status)
+    _net_workers.append(douyin_worker)
+    douyin_worker.done.connect(lambda _name: None)
+    douyin_worker.failed.connect(
+        lambda msg: logger.warning("抖音昵称抓取失败：%s", msg)
+    )
+    douyin_worker.finished.connect(
+        lambda: _net_workers.remove(douyin_worker)
+        if douyin_worker in _net_workers else None
+    )
+    douyin_worker.finished.connect(douyin_worker.deleteLater)
+    douyin_worker.start()
 
     preprocess = PreprocessPage(
         scheduler=cast(Any, ctx.scheduler()),
@@ -175,13 +209,9 @@ def main() -> int:
     dedup.dedup_requested.connect(
         lambda srcs, _params: toast(
             _tr("已提交 {n} 条去重任务").format(n=len(srcs))))
-    coordinator.search_failed.connect(
-        lambda _kw, msg: toast(
-            _tr("搜索失败：{msg}").format(msg=msg),
-            error=True, timeout_ms=8000,
-        ),
-    )
-    # 搜索失败时恢复「搜索」按钮可用
+    # 搜索失败：恢复按钮 + 提示原因均由 capture.on_search_failed（绑定方法，
+    # queued 到 GUI 线程）处理——search_failed 由搜索工作线程发射，
+    # 不能用 lambda 直连在后台线程弹 Toast
     coordinator.search_failed.connect(capture.on_search_failed)
 
     window.show()
@@ -373,7 +403,8 @@ def wire_asset_refresh(
                 logging.getLogger("ych.app").warning("素材列表刷新失败：%s", exc)
                 return
             preprocess.set_assets(rows)
-            dedup.set_assets([r.path for r in rows])
+            # 喂完整行：去重工作台与预处理一样按 大类/关键词/日期 分级展示
+            dedup.set_assets(rows)
 
         def on_download_updated(
             self, _row_id: int, state: str, _progress: float, _msg: str,

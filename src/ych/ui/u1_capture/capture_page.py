@@ -3,16 +3,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from time import monotonic
 from typing import Any, Protocol
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QSpinBox,
@@ -20,6 +20,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ych.core.m1_capture.douyin_risk_control import (
+    WARN_BUDGET_REMAIN,
+    budget_state,
+    cooldown_hint,
+    cooldown_remaining,
+)
 from ych.ui.u1_capture.download_queue_view import DownloadQueueView
 from ych.ui.u1_capture.filter_panel import FilterPanel
 from ych.ui.u1_capture.result_list import ResultList
@@ -33,6 +39,9 @@ _STOCK_PLATFORMS = ("pexels", "pixabay")
 _CN_NAMES = ("抖音", "快手", "B站", "小红书")
 _GLOBAL_NAMES = ("TikTok", "YouTube")
 _STOCK_NAMES = ("Pexels", "Pixabay")
+
+# 抖音登录入口：入参为登录结果回调（插件在后台线程调用，页面内转信号回 GUI 线程）
+_DouyinLoginFn = Callable[[Callable[[bool, str], None]], None]
 
 
 class _CoordinatorLike(Protocol):
@@ -55,6 +64,7 @@ class CapturePage(QWidget):
     """搜索→筛选→下载 三步工作台。"""
 
     foreign_switch_requested = Signal()      # UI 想开国外总开关时先检测
+    douyin_login_finished = Signal(bool, str)   # 登录子线程 → GUI 线程结果
 
     def __init__(
         self,
@@ -64,6 +74,7 @@ class CapturePage(QWidget):
         config: Any | None = None,
         ai_gateway: Any | None = None,       # AiGateway.expand_keywords
         open_files: Callable[[], Path] | None = None,   # 查看文件→下载保存目录
+        douyin_login: _DouyinLoginFn | None = None,      # 抖音 Cookie 登录入口
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -73,8 +84,27 @@ class CapturePage(QWidget):
         self._config = config
         self._ai_gateway = ai_gateway
         self._open_files = open_files
+        self._douyin_login = douyin_login
+        self._douyin_logging_in = False
         self._ai_worker: Any | None = None
         self._searching = False
+        self._search_started_at = 0.0
+        # 搜索耗时计数：抖音采集走浏览器回补，秒级到分钟级都可能；
+        # 界面必须持续给出"还在跑"的反馈，否则用户无从判断是否卡死
+        self._search_timer = QTimer(self)
+        self._search_timer.setInterval(1000)
+        self._search_timer.timeout.connect(self._on_search_tick)
+        # 抖音冷却小字按分钟自愈刷新（冷却结束小字自动消失）
+        self._cooldown_timer = QTimer(self)
+        self._cooldown_timer.setInterval(60_000)
+        self._cooldown_timer.timeout.connect(self._set_douyin_name_text)
+        self._cooldown_timer.start()
+        self._search_includes_douyin = False
+        self._budget_warned_used = -1
+        self.douyin_login_finished.connect(self._on_douyin_login_finished)
+        # 抖音登录/昵称变化（config.set 经信号到达）→ 刷新按钮旁展示
+        if config is not None and hasattr(config, "changed"):
+            config.changed.connect(self._on_config_changed)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -86,14 +116,21 @@ class CapturePage(QWidget):
         self._step_hint = StepHint(self._step_texts())
         root.addWidget(self._step_hint)
 
-        # ---- 顶部：关键词 + 历史词 + AI 扩展 + 搜索 ----
+        # ---- 顶部：关键词输入（内嵌历史下拉）+ AI 扩展 + 搜索 ----
+        # 输入与历史是同一功能：可编辑下拉框既是输入框，下拉即历史词。
+        # 尺寸策略按最小内容宽度自适应，避免长 URL 历史项把输入区挤扁
         top = QHBoxLayout()
         self.history_combo = QComboBox()
-        self.history_combo.addItem(self.tr("历史搜索词"))
-        if history is not None:
-            for kw in history.suggestions(limit=10):
-                self.history_combo.addItem(kw)
-        self.keyword_edit = QLineEdit()
+        self.history_combo.setEditable(True)
+        self.history_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.history_combo.setCompleter(None)   # type: ignore[arg-type]  # 默认补全器会干扰手动输入
+        self.history_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon,
+        )
+        self.history_combo.setMinimumContentsLength(16)
+        _edit = self.history_combo.lineEdit()
+        assert _edit is not None
+        self.keyword_edit = _edit
         self.keyword_edit.setPlaceholderText(
             self.tr("输入关键词，多个用逗号分隔"),
         )
@@ -107,8 +144,7 @@ class CapturePage(QWidget):
         self.btn_ai_expand.clicked.connect(self._on_ai_expand)
         self._keyword_label = QLabel(self.tr("关键词"))
         top.addWidget(self._keyword_label)
-        top.addWidget(self.keyword_edit, 1)
-        top.addWidget(self.history_combo)
+        top.addWidget(self.history_combo, 1)
         top.addWidget(self.btn_ai_expand)
         top.addWidget(self.btn_search)
         root.addLayout(top)
@@ -154,8 +190,9 @@ class CapturePage(QWidget):
         self.queue_view = DownloadQueueView()
         root.addWidget(self.queue_view, 1)
 
-        # 历史词选择回填输入框
+        # 历史词选择回填输入框；初始拉一次历史
         self.history_combo.activated.connect(self._on_history_activated)
+        self._refresh_history()
 
     # ---- 构建 ----
     def _build_platform_box(self) -> QGroupBox:
@@ -168,9 +205,24 @@ class CapturePage(QWidget):
         self.global_checks: dict[str, QCheckBox] = {}   # 受总开关约束
         self.stock_checks: dict[str, QCheckBox] = {}    # 素材站：始终可用
 
-        self._cn_note = QLabel(self.tr("国内平台（暂未开放，框架占位）"))
+        self._cn_note = QLabel(self.tr("国内平台（抖音可用，其余为占位）"))
         self._cn_note.setObjectName("muted")
-        layout.addWidget(self._cn_note)
+        cn_head = QHBoxLayout()
+        cn_head.addWidget(self._cn_note)
+        cn_head.addStretch(1)
+        self.btn_douyin_login = QPushButton(self.tr("登录抖音"))
+        self.btn_douyin_login.setObjectName("secondaryBtn")
+        self.btn_douyin_login.setToolTip(
+            self.tr("弹出浏览器登录抖音并保存 Cookie；登录状态长期有效，"
+                    "无需每次采集都登录"),
+        )
+        self.btn_douyin_login.clicked.connect(self._on_douyin_login)
+        cn_head.addWidget(self.btn_douyin_login)
+        self.douyin_name_label = QLabel("")
+        self.douyin_name_label.setObjectName("muted")
+        cn_head.addWidget(self.douyin_name_label)
+        self._set_douyin_name_text()
+        layout.addLayout(cn_head)
         cn_grid = QGridLayout()
         cn_grid.setContentsMargins(0, 0, 0, 0)
         for i, (pid, name) in enumerate(
@@ -178,6 +230,10 @@ class CapturePage(QWidget):
         ):
             cb = QCheckBox(name)
             cb.setChecked(True)
+            if pid == "douyin":
+                cb.setToolTip(
+                    self.tr("在关键词框粘贴博主主页链接（douyin.com/user/…）后搜索"),
+                )
             cn_grid.addWidget(cb, i // 2, i % 2)
             self.cn_checks[pid] = cb
         layout.addLayout(cn_grid)
@@ -224,11 +280,115 @@ class CapturePage(QWidget):
         ]
 
     def _on_history_activated(self, index: int) -> None:
-        text = self.history_combo.itemText(index)
-        if index > 0 and text:
-            self.keyword_edit.setText(text)
+        if index >= 0:
+            text = self.history_combo.itemText(index)
+            if text:
+                self.keyword_edit.setText(text)
+
+    def _refresh_history(self) -> None:
+        """重建历史词下拉；输入框正在编辑的内容原样保留。
+
+        搜索完成后也会调用（协调器才记录历史词），让刚搜过的词立即可选。
+        """
+        combo = self.history_combo
+        keep = self.keyword_edit.text()
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            if self._history is not None:
+                try:
+                    for kw in self._history.suggestions(limit=10):
+                        combo.addItem(kw)
+                except Exception:
+                    pass   # 历史读取失败不影响输入功能
+            combo.setCurrentIndex(-1)   # 不选中任何历史词，避免顶掉输入内容
+            self.keyword_edit.setText(keep)
+        finally:
+            combo.blockSignals(False)
+
+    def _on_douyin_login(self) -> None:
+        if self._douyin_login is None:
+            Toast.show_message(self, self.tr("抖音登录功能未装配"), error=True)
+            return
+        if self._douyin_logging_in:
+            Toast.show_message(self, self.tr("登录窗口打开中…"))
+            return
+        self._douyin_logging_in = True
+        self.btn_douyin_login.setEnabled(False)
+        self.btn_douyin_login.setText(self.tr("登录窗口打开中…"))
+        Toast.show_message(
+            self,
+            self.tr("已弹出登录窗口：在浏览器中完成抖音登录后会自动保存，无需按回车"),
+        )
+        # 回调发 Signal（线程安全），槽函数在 GUI 线程收尾
+        self._douyin_login(self.douyin_login_finished.emit)
+
+    def _on_douyin_login_finished(self, ok: bool, reason: str) -> None:
+        self._douyin_logging_in = False
+        self.btn_douyin_login.setEnabled(True)
+        self.btn_douyin_login.setText(self.tr("登录抖音"))
+        if ok:
+            Toast.show_message(
+                self, self.tr("抖音登录成功，现在可以粘贴博主主页链接搜索了"),
+            )
+        else:
+            Toast.show_message(
+                self, self.tr("抖音登录未完成：{msg}").format(msg=reason),
+                error=True,
+            )
+        self._set_douyin_name_text()
+
+    def _set_douyin_name_text(self) -> None:
+        """按钮旁登录态展示：优先昵称；已登录但昵称未取到时显示已登录。
+
+        Cookie 持久保存在本机（vendor 运行态配置），重启应用无需重新登录，
+        故"已登录"字样会一直在——它是状态说明而非待办提醒。
+        风控冷却（方案一）激活时在末尾追加，让"为什么搜不了"随时可见。
+        """
+        nickname = ""
+        logged_in = False
+        if self._config is not None and hasattr(self._config, "get"):
+            try:
+                nickname = str(self._config.get("douyin_nickname") or "")
+                logged_in = bool(self._config.get("douyin_cookies_set"))
+            except Exception:
+                logged_in = False
+        if nickname:
+            text = self.tr("已登录：{name}").format(name=nickname)
+        elif logged_in:
+            text = self.tr("已登录抖音（长期有效）")
+        else:
+            text = ""
+        if logged_in and self._config is not None:
+            remain = cooldown_remaining(self._config)
+            if remain > 0:
+                text += self.tr(" · 风控冷却中（{hint}）").format(
+                    hint=cooldown_hint(remain),
+                )
+        self.douyin_name_label.setText(text)
+        used, limit = (
+            budget_state(self._config)
+            if self._config is not None else (0, 0)
+        )
+        self.douyin_name_label.setToolTip(
+            self.tr("登录状态已保存在本机，重启应用无需重新登录；"
+                    "Cookie 失效时会提示重新登录")
+            + self.tr("\n今日抖音搜索额度：{used}/{limit}（密集采集容易触发"
+                      "平台风控，被拒后需等待冷却）").format(used=used, limit=limit)
+        )
+
+    def _on_config_changed(self, key: str, _value: object) -> None:
+        """抖音昵称/登录标记/风控状态变化 → 刷新按钮旁展示。"""
+        if key in ("douyin_nickname", "douyin_cookies_set",
+                   "douyin_cooldown_until", "douyin_daily_usage"):
+            self._set_douyin_name_text()
 
     def _on_search(self) -> None:
+        if self._searching:
+            # 重入守卫：搜索中按回车会绕过禁用的搜索按钮，必须给出反馈
+            # 而不是静默丢弃（否则表现为"按了没反应"）
+            Toast.show_message(self, self.tr("正在搜索中，请稍候…"))
+            return
         raw = self.keyword_edit.text().strip()
         if not raw:
             Toast.show_message(self, self.tr("请先输入关键词再搜索"))
@@ -247,6 +407,7 @@ class CapturePage(QWidget):
         if not selected:
             Toast.show_message(self, self.tr("请至少勾选一个采集平台"))
             return
+        self._search_includes_douyin = self.cn_checks["douyin"].isChecked()
         Toast.show_message(
             self, self.tr("正在搜索：{kw} …").format(kw="、".join(keywords)),
         )
@@ -271,8 +432,20 @@ class CapturePage(QWidget):
         """搜索进行中：按钮禁用防重复提交，文案给出状态反馈。"""
         self._searching = searching
         self.btn_search.setEnabled(not searching)
-        self.btn_search.setText(self.tr("搜索中…") if searching
-                                else self.tr("搜索"))
+        if searching:
+            self._search_started_at = monotonic()
+            self.btn_search.setText(self.tr("搜索中…"))
+            self._search_timer.start()
+        else:
+            self._search_timer.stop()
+            self.btn_search.setText(self.tr("搜索"))
+
+    def _on_search_tick(self) -> None:
+        """搜索中每秒刷新按钮耗时，让长耗时平台（抖音）可见可控。"""
+        elapsed = int(monotonic() - self._search_started_at)
+        self.btn_search.setText(
+            self.tr("搜索中 {s}s…").format(s=max(1, elapsed)),
+        )
 
     # ---- AI 关键词扩展 ----
     def _on_ai_expand(self) -> None:
@@ -428,10 +601,36 @@ class CapturePage(QWidget):
             list(result_set.items), result_set.keyword,
             list(result_set.unavailable_platforms),
         )
+        self._refresh_history()   # 协调器已记录本词：历史下拉即时可选用
+        self._warn_budget_if_needed()
 
-    def on_search_failed(self, _keyword: str, _msg: str) -> None:
-        """搜索失败：恢复搜索按钮（失败详情由 app 层 Toast 提示）。"""
+    def _warn_budget_if_needed(self) -> None:
+        """抖音搜索额度进入告警区后，每次用量递增提醒一次（不刷屏）。"""
+        if not self._search_includes_douyin or self._config is None:
+            return
+        used, limit = budget_state(self._config)
+        if used < limit - WARN_BUDGET_REMAIN or used <= self._budget_warned_used:
+            return
+        self._budget_warned_used = used
+        Toast.show_message(
+            self,
+            self.tr("今日抖音搜索额度已用 {used}/{limit}，"
+                    "密集采集容易触发平台风控，请注意节制").format(
+                        used=used, limit=limit,
+                    ),
+        )
+
+    def on_search_failed(self, _keyword: str, msg: str) -> None:
+        """搜索失败：恢复「搜索」按钮并提示原因（本槽由绑定方法连接，
+        从搜索工作线程 queued 到 GUI 线程执行，可安全弹 Toast）。"""
         self._set_searching(False)
+        Toast.show_message(
+            self, self.tr("搜索失败：{msg}").format(msg=msg), error=True,
+        )
+
+    def on_foreign_probe_done(self, status: str) -> None:
+        """外网探测完成（GUI 线程槽）：可达才允许开启总开关。"""
+        self.confirm_foreign_enable(status == "ok")
 
     def _on_download(self, metas: list[Any], keyword: str) -> None:
         if self._dm is None:
@@ -471,7 +670,6 @@ class CapturePage(QWidget):
     def retranslate(self) -> None:
         """语言切换：静态文案重翻译 + 搜索按钮按当前状态重算。"""
         self._step_hint.set_steps(self._step_texts())
-        self.history_combo.setItemText(0, self.tr("历史搜索词"))
         self.keyword_edit.setPlaceholderText(
             self.tr("输入关键词，多个用逗号分隔"),
         )
@@ -488,7 +686,16 @@ class CapturePage(QWidget):
             self.tr("打开下载文件的保存位置（工作目录）"),
         )
         self._platform_box.setTitle(self.tr("采集平台"))
-        self._cn_note.setText(self.tr("国内平台（暂未开放，框架占位）"))
+        self._cn_note.setText(self.tr("国内平台（抖音可用，其余为占位）"))
+        self.btn_douyin_login.setText(
+            self.tr("登录窗口打开中…") if self._douyin_logging_in
+            else self.tr("登录抖音")
+        )
+        self._set_douyin_name_text()
+        self.btn_douyin_login.setToolTip(
+            self.tr("弹出浏览器登录抖音并保存 Cookie；登录状态长期有效，"
+                    "无需每次采集都登录"),
+        )
         self.foreign_master.setText(self.tr("国外平台（TikTok / YouTube）"))
         self.foreign_master.setToolTip(
             self.tr("开启前会自动检测外网可达性；TikTok/YouTube 目前为占位未开放"),

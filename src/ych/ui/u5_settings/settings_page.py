@@ -9,7 +9,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl
-from PySide6.QtGui import QBrush, QColor, QDesktopServices
+from PySide6.QtGui import (
+    QAction,
+    QBrush,
+    QColor,
+    QDesktopServices,
+    QIcon,
+    QPainter,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -32,7 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ych.services.s4_net.http_client import HttpClient
+from ych.services.s4_net.http_client import HttpClient, split_proxy_address
 from ych.services.s4_net.proxy_detect import detect_local_proxy
 from ych.ui.u5_settings.ai_presets import AI_PRESETS
 from ych.ui.u5_settings.net_check_dialog import NetCheckDialog
@@ -76,6 +84,8 @@ if TYPE_CHECKING:
 
         def all_specs(self) -> list[ModelSpec]: ...
 
+        def spec(self, key: str) -> ModelSpec: ...
+
         def exists(self, key: str) -> bool: ...
 
         def size_of(self, key: str) -> int: ...
@@ -83,6 +93,8 @@ if TYPE_CHECKING:
         def path_of(self, key: str) -> Path: ...
 
         def download(self, key: str, token: object | None = None) -> Path: ...
+
+        def import_file(self, key: str, src: Path) -> Path: ...
 
 else:
     _ConfigLike = QObject
@@ -98,6 +110,42 @@ _STOCK_SITES: tuple[tuple[str, str], ...] = (
 )
 
 _PAGE_LIST, _PAGE_AI_EDIT, _PAGE_KEY_EDIT = 0, 1, 2
+
+
+def _glyph_icon(text: str) -> QIcon:
+    """Unicode 字形 → 图标（免引入图标资源文件）。"""
+    pm = QPixmap(18, 18)
+    pm.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pm)
+    painter.setPen(QColor(_GRAY))
+    font = painter.font()
+    font.setPixelSize(13)
+    painter.setFont(font)
+    painter.drawText(pm.rect(), Qt.AlignmentFlag.AlignCenter, text)
+    painter.end()
+    return QIcon(pm)
+
+
+def _add_password_visibility_toggle(edit: QLineEdit, tooltip: str) -> QAction:
+    """密码框尾部加「眼睛」动作：点击切换明文/密文，便于核对是否输错。
+
+    QLineEdit 的尾部动作自带点击与悬停态；勾选态=明文（🙈），默认=密文（👁）。
+    """
+    action = QAction(_glyph_icon("👁"), tooltip, edit)
+    action.setToolTip(tooltip)
+    action.setCheckable(True)
+
+    def _toggle(checked: bool) -> None:
+        edit.setEchoMode(
+            QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
+        )
+        glyph = "🙈" if checked else "👁"
+        action.setIcon(_glyph_icon(glyph))
+        action.setToolTip(tooltip)
+
+    action.toggled.connect(_toggle)
+    edit.addAction(action, QLineEdit.ActionPosition.TrailingPosition)
+    return action
 
 
 class SettingsPage(QWidget):
@@ -180,11 +228,23 @@ class SettingsPage(QWidget):
         form_n = QFormLayout(network)
         self._form_network = form_n
         self.proxy_check = QCheckBox(self.tr("启用代理"))
-        self.proxy_host = QLineEdit(str(config.get("proxy_host") or ""))
-        self.proxy_port = QLineEdit(str(config.get("proxy_port") or 0))
+        # 单框地址：可整段粘贴 "IP:端口" / "http://IP:端口"，失焦自动拆解
+        # 归一化（此前 host/port 两个框，整段粘贴无处安放且端口留 0 导致
+        # 代理被静默停用，表现为"填对了也不让用"）
+        _saved_host = str(config.get("proxy_host") or "")
+        _saved_port = config.get("proxy_port")
+        _parsed = split_proxy_address(_saved_host)
+        if _parsed is not None and _parsed[0]:
+            _saved_host, _saved_port = _parsed[0], (
+                _parsed[1] or (_saved_port if isinstance(_saved_port, int) else 0)
+            )
+        _saved_port = _saved_port if isinstance(_saved_port, int) else 0
+        self.proxy_edit = QLineEdit(
+            f"{_saved_host}:{_saved_port}" if _saved_host and _saved_port
+            else _saved_host
+        )
         row_proxy = QHBoxLayout()
-        row_proxy.addWidget(self.proxy_host)
-        row_proxy.addWidget(self.proxy_port)
+        row_proxy.addWidget(self.proxy_edit)
         self.proxy_auto_btn = QPushButton(self.tr("自动检测"))
         self.proxy_auto_btn.setObjectName("secondaryBtn")
         self.proxy_auto_btn.setToolTip(
@@ -200,8 +260,9 @@ class SettingsPage(QWidget):
         self._proxy_row = row_proxy
         form_n.addRow(self.tr("代理地址"), row_proxy)
         self.proxy_hint = QLabel(
-            self.tr("填写本地 HTTP 代理，格式 IP:端口（Clash 默认 127.0.0.1:7890，"
-                    "v2rayN 默认 10809）。VPN 的订阅链接不是代理地址。"
+            self.tr("可整段粘贴代理地址，支持 IP:端口 或 http://IP:端口"
+                    "（Clash 默认 127.0.0.1:7890，v2rayN 默认 10809）。"
+                    "VPN 的订阅链接不是代理地址。"
                     "若 VPN 使用 TUN/系统代理模式，无需启用本项。"),
         )
         self.proxy_hint.setWordWrap(True)
@@ -255,6 +316,7 @@ class SettingsPage(QWidget):
         root.addWidget(models_box)
 
         self._downloading_key: str | None = None
+        self._importing_key: str | None = None
         self._worker_keys: dict[QObject, str] = {}
         self._model_dl_cells: dict[str, QPushButton] = {}
         self._model_workers: list[LlmWorker] = []
@@ -284,14 +346,9 @@ class SettingsPage(QWidget):
 
         # ---- 双向绑定 ----
         self.lang_combo.currentTextChanged.connect(self._on_lang_changed)
-        self.workdir_edit.editingFinished.connect(
-            lambda: config.set("workdir", self.workdir_edit.text().strip())
-        )
+        self.workdir_edit.editingFinished.connect(self._on_workdir_edited)
         self.proxy_check.toggled.connect(lambda v: config.set("proxy_enabled", v))
-        self.proxy_host.editingFinished.connect(
-            lambda: config.set("proxy_host", self.proxy_host.text().strip())
-        )
-        self.proxy_port.editingFinished.connect(self._commit_port)
+        self.proxy_edit.editingFinished.connect(self._commit_proxy_address)
         self.download_conc.editingFinished.connect(
             lambda: self._commit_int_setting(self.download_conc,
                                              "download_concurrency", 3)
@@ -332,11 +389,14 @@ class SettingsPage(QWidget):
                     mb=f"{dl.size_of(str(spec.key)) / 1048576:.1f}",
                 )
                 color = _GREEN
+            elif self._importing_key == str(spec.key):
+                status = self.tr("导入中：复制并校验模型契约…")
+                color = "#2563eb"
             elif ratio is not None:
                 status = self.tr("下载中 {pct}%").format(pct=int(ratio * 100))
                 color = "#2563eb"
             elif not spec.urls:
-                status = self.tr("缺失（无自动下载源，可手动放置文件）")
+                status = self.tr("缺失（无公开下载源；点「导入…」选择模型文件）")
                 color = _GRAY
             else:
                 status = self.tr("未下载")
@@ -357,21 +417,40 @@ class SettingsPage(QWidget):
             if self._downloading_key == str(spec.key):
                 btn.setText(self.tr("取消"))
                 btn.setEnabled(True)
+            elif not spec.urls:
+                # 无下载源 ≠ 不能添加：提供手动导入（复制+契约校验）
+                btn.setText(self.tr("导入…"))
+                btn.setEnabled(
+                    self._downloading_key is None and self._importing_key is None
+                )
             else:
                 btn.setText(self.tr("下载"))
-                btn.setEnabled(bool(spec.urls) and self._downloading_key is None)
+                btn.setEnabled(
+                    self._downloading_key is None and self._importing_key is None
+                )
 
     def _on_model_button(self, key: str) -> None:
-        """下载中点同一行 = 取消（保留断点）；其余情况发起下载。"""
+        """下载中点同一行 = 取消（保留断点）；无源模型 = 导入；其余发起下载。"""
         if self._downloading_key == key and self._model_token is not None:
             self._model_token.cancel()
             self.model_hint.setText(self.tr("已请求取消，将保留已下载断点…"))
+            return
+        dl = self._model_downloader
+        if dl is not None and not dl.spec(key).urls:
+            self._import_model(key)
             return
         self._download_model(key)
 
     def _download_model(self, key: str) -> None:
         dl = self._model_downloader
-        if dl is None or self._downloading_key is not None:
+        if dl is None:
+            self.model_hint.setText(self.tr("模型下载组件未装配"))
+            return
+        if self._downloading_key is not None:
+            self.model_hint.setText(self.tr("已有模型在下载中，请先等待或取消"))
+            return
+        if self._importing_key is not None:
+            self.model_hint.setText(self.tr("已有模型在导入中，请先等待完成"))
             return
         from ych.common.cancellation import CancellationToken
 
@@ -412,6 +491,60 @@ class SettingsPage(QWidget):
         self._refresh_model_rows()
         self.model_hint.setText(
             self.tr(f"{key} 下载失败：{msg}（可检查网络/代理后重试）"),
+        )
+
+    # ---- 无下载源模型的手动导入（选文件 → 复制 → 契约校验） ----
+    def _import_model(self, key: str) -> None:
+        dl = self._model_downloader
+        if dl is None:
+            self.model_hint.setText(self.tr("模型下载组件未装配"))
+            return
+        if self._downloading_key is not None or self._importing_key is not None:
+            self.model_hint.setText(
+                self.tr("已有模型在下载/导入中，请先等待完成"),
+            )
+            return
+        src, _f = QFileDialog.getOpenFileName(
+            self, self.tr("选择模型文件"),
+            "", self.tr("ONNX 模型 (*.onnx);;所有文件 (*.*)"),
+        )
+        if not src:
+            return
+        self._importing_key = key
+        self.model_hint.setText(self.tr("导入中：复制并校验模型契约…"))
+        self._refresh_model_rows()
+
+        def _task() -> object:
+            assert dl is not None
+            return dl.import_file(key, Path(src))
+
+        worker = LlmWorker(_task)
+        self._track_worker(self._model_workers, worker)
+        self._worker_keys[worker] = key
+        worker.done.connect(self._on_import_done)
+        worker.failed.connect(self._on_import_failed)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _on_import_done(self, _result: object) -> None:
+        key = self._worker_keys.pop(self.sender(), self._importing_key or "")
+        self._importing_key = None
+        self._refresh_model_rows()
+        dl = self._model_downloader
+        if dl is not None:
+            name = Path(str(dl.path_of(key))).name
+            self.model_hint.setText(
+                self.tr("{name} 导入成功并通过契约校验，即刻可用。").format(name=name),
+            )
+
+    def _on_import_failed(self, msg: str) -> None:
+        self._worker_keys.pop(self.sender(), None)
+        self._importing_key = None
+        self._refresh_model_rows()
+        self.model_hint.setText(
+            self.tr("导入失败：{msg}（文件需与模型用途的输入/输出契约一致）").format(
+                msg=msg,
+            ),
         )
 
     def _open_models_dir(self) -> None:
@@ -678,6 +811,9 @@ class SettingsPage(QWidget):
         self.ai_key_edit = QLineEdit()
         self._ai_key_ph_src = ""   # 当前占位提示源串（语言切换重翻译用）
         self.ai_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._ai_key_toggle = _add_password_visibility_toggle(
+            self.ai_key_edit, self.tr("显示 / 隐藏 API Key"),
+        )
         form.addRow(self.tr("名称"), self.ai_name_edit)
         form.addRow(self.tr("接口地址"), self.ai_base_edit)
         form.addRow("API Key", self.ai_key_edit)
@@ -774,32 +910,33 @@ class SettingsPage(QWidget):
 
         worker = LlmWorker(_task)
         self._track_worker(self._ai_workers, worker)
-
-        def _done(models: object) -> None:
-            self.ai_fetch_btn.setEnabled(True)
-            self.ai_fetch_btn.setText(self.tr("拉取模型"))
-            if isinstance(models, list) and models:
-                current = self.ai_model_combo.currentText()
-                self.ai_model_combo.clear()
-                self.ai_model_combo.addItems([str(m) for m in models])
-                idx = self.ai_model_combo.findText(current)
-                self.ai_model_combo.setCurrentIndex(idx if idx >= 0 else 0)
-            else:
-                QMessageBox.information(
-                    self, self.tr("未获取到模型"),
-                    self.tr("服务未返回模型列表：可检查地址与 Key，"
-                            "或直接在模型框手动填写模型名。"),
-                )
-
-        def _failed(msg: str) -> None:
-            self.ai_fetch_btn.setEnabled(True)
-            self.ai_fetch_btn.setText(self.tr("拉取模型"))
-            QMessageBox.warning(self, self.tr("拉取失败"), msg)
-
-        worker.done.connect(_done)
-        worker.failed.connect(_failed)
+        # 必须连绑定方法：局部闭包会在 LlmWorker 线程里直连执行，
+        # 造成后台线程操作 UI（随机崩溃/按钮永久卡在"拉取中"）
+        worker.done.connect(self._on_ai_models_done)
+        worker.failed.connect(self._on_ai_models_failed)
         worker.finished.connect(worker.deleteLater)
         worker.start()
+
+    def _on_ai_models_done(self, models: object) -> None:
+        self.ai_fetch_btn.setEnabled(True)
+        self.ai_fetch_btn.setText(self.tr("拉取模型"))
+        if isinstance(models, list) and models:
+            current = self.ai_model_combo.currentText()
+            self.ai_model_combo.clear()
+            self.ai_model_combo.addItems([str(m) for m in models])
+            idx = self.ai_model_combo.findText(current)
+            self.ai_model_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        else:
+            QMessageBox.information(
+                self, self.tr("未获取到模型"),
+                self.tr("服务未返回模型列表：可检查地址与 Key，"
+                        "或直接在模型框手动填写模型名。"),
+            )
+
+    def _on_ai_models_failed(self, msg: str) -> None:
+        self.ai_fetch_btn.setEnabled(True)
+        self.ai_fetch_btn.setText(self.tr("拉取模型"))
+        QMessageBox.warning(self, self.tr("拉取失败"), msg)
 
     # ================= 素材站 Key 配置页 =================
     def _build_stock_key_page(self) -> QWidget:
@@ -824,6 +961,9 @@ class SettingsPage(QWidget):
         self.stock_key_edit = QLineEdit()
         self._stock_key_ph_src = ""
         self.stock_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._stock_key_toggle = _add_password_visibility_toggle(
+            self.stock_key_edit, self.tr("显示 / 隐藏 API Key"),
+        )
         form.addRow("API Key", self.stock_key_edit)
         lay.addLayout(form)
         note = QLabel(self.tr("密钥存储在系统凭据管理器，不上传、不入库。"))
@@ -861,6 +1001,30 @@ class SettingsPage(QWidget):
         self._rebuild_service_list(select_service=("stock", pid))
 
     # ================= 其余分组 =================
+    def _on_workdir_edited(self) -> None:
+        """手输工作目录：与「浏览」同路径走 WorkDirManager（校验+即时生效
+        +素材列表刷新）。此前直写 config 导致本会话不生效且无任何反馈。"""
+        text = self.workdir_edit.text().strip()
+        if not text:
+            return
+        current = str(self._config.get("workdir") or "")
+        if text == current:
+            return   # 失焦触发的未变更编辑，无需处理
+        if self._workdirs is None:
+            self._config.set("workdir", text)   # 管理器未装配时退化为直写
+            return
+        try:
+            self._workdirs.set_workdir(Path(text))
+        except Exception as exc:
+            QMessageBox.warning(
+                self, self.tr("目录不可用"),
+                self.tr("该目录无法作为工作目录：\n{err}").format(err=exc),
+            )
+            # 回显为当前生效目录，避免界面与实际状态不一致
+            self.workdir_edit.setText(current)
+            return
+        self.workdir_edit.setText(text)
+
     def _pick_workdir(self) -> None:
         chosen = QFileDialog.getExistingDirectory(
             self, self.tr("选择素材工作目录"),
@@ -883,12 +1047,52 @@ class SettingsPage(QWidget):
             self._config.set("workdir", str(path))
         self.workdir_edit.setText(str(path))
 
-    def _commit_port(self) -> None:
-        try:
-            port = int(self.proxy_port.text())
-        except ValueError:
-            port = 0
+    def _commit_proxy_address(self) -> None:
+        """提交代理地址：宽容解析 → 归一化回显 → 即时状态反馈。
+
+        无法解析时红色提示并回显原值，绝不静默丢弃（此前端口留 0 会
+        让代理被静默停用，用户视角即"填了正确的也不让用"）。
+        """
+        text = self.proxy_edit.text().strip()
+        parsed = split_proxy_address(text)
+        if parsed is None:
+            self.proxy_status.setText(
+                self.tr("无法识别的代理地址：{text}"
+                        "（示例：127.0.0.1:7890 或 http://127.0.0.1:7890）").format(
+                            text=text,
+                        ),
+            )
+            self.proxy_status.setStyleSheet(f"color: {_RED};")
+            return
+        host, port = parsed
+        if not host:
+            # 清空输入 = 清除代理配置
+            self._config.set("proxy_host", "")
+            self._config.set("proxy_port", 0)
+            self.proxy_edit.setText("")
+            self.proxy_status.setText(self.tr("已清空代理地址。"))
+            self.proxy_status.setStyleSheet(f"color: {_GRAY};")
+            return
+        if port <= 0:
+            self.proxy_status.setText(
+                self.tr("代理地址缺少端口：请写成 IP:端口（如 127.0.0.1:7890）。"),
+            )
+            self.proxy_status.setStyleSheet(f"color: {_RED};")
+            return
+        self._config.set("proxy_host", host)
         self._config.set("proxy_port", port)
+        self.proxy_edit.setText(f"{host}:{port}")
+        state = (self.tr("已启用") if self.proxy_check.isChecked()
+                 else self.tr("已保存，勾选「启用代理」后生效"))
+        self.proxy_status.setText(
+            self.tr("✓ {state}：http://{host}:{port}").format(
+                state=state, host=host, port=port,
+            ),
+        )
+        self.proxy_status.setStyleSheet(
+            f"color: {_GREEN};" if self.proxy_check.isChecked()
+            else f"color: {_GRAY};"
+        )
 
     def _commit_int_setting(self, edit: QLineEdit, key: str, fallback: int) -> None:
         """整型设置提交：非法输入回退默认值并回显规范化结果。"""
@@ -932,10 +1136,9 @@ class SettingsPage(QWidget):
             self.proxy_status.setStyleSheet(f"color: {_ORANGE};")
             return
         host, port = str(result[0]), int(result[1])
-        self.proxy_host.setText(host)
-        self.proxy_port.setText(str(port))
         self._config.set("proxy_host", host)
         self._config.set("proxy_port", port)
+        self.proxy_edit.setText(f"{host}:{port}")
         self.proxy_check.setChecked(True)   # toggled → 持久化 proxy_enabled
         self.proxy_status.setText(
             self.tr(f"✓ 已自动配置并启用：{host}:{port}（已验证可访问外网）"),
@@ -969,10 +1172,18 @@ class SettingsPage(QWidget):
 
     def _on_config_changed(self, key: str, value: object) -> None:
         """config.changed → 控件回填（避免回环：仅当值不同才写控件）。"""
+        if key in ("proxy_host", "proxy_port"):
+            # 单框展示：由 host+port 组合出归一化地址（自动检测等外部
+            # 写入方也会走到这里）
+            host = str(self._config.get("proxy_host") or "")
+            port_raw = self._config.get("proxy_port")
+            port = port_raw if isinstance(port_raw, int) else 0
+            text = f"{host}:{port}" if host and port else host
+            if self.proxy_edit.text() != text:
+                self.proxy_edit.setText(text)
+            return
         mapping = {
             "workdir": (self.workdir_edit, "text"),
-            "proxy_host": (self.proxy_host, "text"),
-            "proxy_port": (self.proxy_port, "text"),
             "download_concurrency": (self.download_conc, "text"),
             "process_concurrency": (self.process_conc, "text"),
             "max_retry": (self.max_retry, "text"),
@@ -1034,8 +1245,9 @@ class SettingsPage(QWidget):
                     "验证可通外网后自动填入并启用"),
         )
         self.proxy_hint.setText(
-            self.tr("填写本地 HTTP 代理，格式 IP:端口（Clash 默认 127.0.0.1:7890，"
-                    "v2rayN 默认 10809）。VPN 的订阅链接不是代理地址。"
+            self.tr("可整段粘贴代理地址，支持 IP:端口 或 http://IP:端口"
+                    "（Clash 默认 127.0.0.1:7890，v2rayN 默认 10809）。"
+                    "VPN 的订阅链接不是代理地址。"
                     "若 VPN 使用 TUN/系统代理模式，无需启用本项。"),
         )
         self.net_btn.setText(self.tr("网络检测"))
@@ -1081,3 +1293,5 @@ class SettingsPage(QWidget):
         if self._stock_key_ph_src:
             self.stock_key_edit.setPlaceholderText(
                 self.tr(self._stock_key_ph_src))
+        self._ai_key_toggle.setToolTip(self.tr("显示 / 隐藏 API Key"))
+        self._stock_key_toggle.setToolTip(self.tr("显示 / 隐藏 API Key"))

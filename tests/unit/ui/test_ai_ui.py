@@ -353,6 +353,7 @@ def test_search_passes_selected_platform_ids(qtbot) -> None:
     ids = coord.calls[0]["platform_ids"]
     assert "pexels" in ids and "pixabay" in ids          # type: ignore[operator]
     assert "douyin" in ids                                # type: ignore[operator]
+    page._set_searching(False)   # 模拟上一轮搜索结束（搜索中重入会被守卫拒绝）
     # 取消勾选 pexels 后不再传入
     page.stock_checks["pexels"].setChecked(False)
     page._on_search()

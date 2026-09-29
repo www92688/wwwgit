@@ -275,20 +275,20 @@ def test_wire_asset_refresh_feeds_pages(qapp, qtbot) -> None:
         ),
     )
     pre_calls: list[list[AssetRow]] = []
-    dedup_calls: list[list[str]] = []
+    dedup_calls: list[list[AssetRow]] = []
     preprocess = SimpleNamespace(set_assets=pre_calls.append)
     dedup = SimpleNamespace(set_assets=dedup_calls.append)
     dm = SimpleNamespace(item_updated=sigs.item_updated)
 
     wire_asset_refresh(ctx, preprocess, dedup, dm)
     assert len(pre_calls) == 1 and pre_calls[0] == rows       # 启动加载一次
-    assert dedup_calls[0] == [rows[0].path]
+    assert dedup_calls[0] == rows    # 去重页同样吃完整行（建三级树）
 
     sigs.item_updated.emit(1, "running", 0.5, "")             # 进行中不刷新
     assert len(pre_calls) == 1
 
     sigs.item_updated.emit(1, "success", 1.0, r"C:\wd\x.mp4")  # 成功即刷新
-    assert len(pre_calls) == 2 and dedup_calls[1] == [rows[0].path]
+    assert len(pre_calls) == 2 and dedup_calls[1] == rows
 
     sigs.workdir_changed.emit(rows[0].path)                   # 换目录刷新
     assert len(pre_calls) == 3
