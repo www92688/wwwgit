@@ -31,6 +31,10 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     _set_window_icon(app)
+    # 退出前等全部在途后台任务结束：QThread 运行中被销毁会 abort
+    from ych.ui.u6_common.llm_worker import wait_all
+
+    app.aboutToQuit.connect(wait_all)
 
     ctx = build_context()
     # 数据库就绪回填配置；失败不阻断启动（配置退化为默认值）
@@ -153,10 +157,13 @@ def main() -> int:
         config=ctx.config(),
     )
     compare_srcs: dict[str, list[str]] = {}
+    # 去重页 busy 态与页面内进度条：提交成功即登记任务，进度/终态经
+    # 调度器信号回填（点击后立刻有持续可见的反馈，而非只靠一闪 toast）
+    dedup.attach_scheduler(ctx.scheduler())
     dedup.analyze_requested.connect(
-        lambda srcs: _submit_compare(ctx, srcs, compare_srcs))
+        lambda srcs: _submit_compare(ctx, dedup, srcs, compare_srcs))
     dedup.dedup_requested.connect(
-        lambda srcs, params: _submit_dedup(ctx, srcs, params))
+        lambda srcs, params: _submit_dedup(ctx, dedup, srcs, params))
     failures = FailurePage(ctx.daos().fails, ctx.scheduler())
     settings = SettingsPage(
         cast(Any, ctx.config()), i18n=cast(Any, ctx.i18n()),
@@ -194,7 +201,9 @@ def main() -> int:
         logger.exception("崩溃恢复失败（不影响启动）")
 
     # 处理类任务反馈：完成/失败 Toast，分析报告回填去重页
-    toast = wire_task_feedback(ctx, ctx.scheduler(), dedup, window, compare_srcs)
+    toast = wire_task_feedback(
+        ctx, ctx.scheduler(), dedup, preprocess, window, compare_srcs,
+    )
 
     def _tr(msg: str) -> str:
         # 运行时 Toast 文案翻译（app 上下文；lupdate 按字面量提取）
@@ -257,7 +266,7 @@ def _load_preview_frame(ctx: Any, src: str) -> str:
 
 
 def wire_task_feedback(
-    ctx: Any, sched: Any, dedup: Any, parent: Any,
+    ctx: Any, sched: Any, dedup: Any, preprocess: Any, parent: Any,
     compare_srcs: dict[str, list[str]],
 ) -> Callable[..., None]:
     """处理类任务（preprocess/dedup/compare）终态反馈：Toast + 报告回填。
@@ -329,17 +338,36 @@ def wire_task_feedback(
             if state == "success":
                 failed = int(summary.get("failed") or 0)
                 skipped = int(summary.get("skipped") or 0)
-                extra = "".join(
-                    self.tr("，{word} {count} 条").format(word=w, count=c)
-                    for w, c in ((self.tr("失败"), failed),
-                                 (self.tr("跳过"), skipped))
-                    if c
-                )
                 if ttype == "preprocess":
-                    toast(self.tr(
-                        "预处理完成：成功 {n} 条{extra}；输出与原文件同目录"
-                        "（_cleaned 后缀）",
-                    ).format(n=len(summary.get("outputs") or []), extra=extra))
+                    names = [str(x) for x in (summary.get("skipped_names") or [])]
+                    out_dir = str(summary.get("output_dir") or "")
+                    if not (summary.get("outputs") or []) and not failed \
+                            and skipped and skipped == len(names):
+                        # 全部「输出已存在」：明确没干活 + 怎么重新生成
+                        toast(self.tr(
+                            "输出已存在，未重新处理：{names}\n"
+                            "如需重新生成，请删除「预处理」文件夹中的同名"
+                            " _cleaned.mp4 文件",
+                        ).format(names=self._cap_names(names, 2)),
+                            timeout_ms=8000,
+                        )
+                    else:
+                        extra = "".join(
+                            self.tr("，{word} {count} 条").format(word=w, count=c)
+                            for w, c in ((self.tr("失败"), failed),
+                                         (self.tr("跳过"), skipped))
+                            if c
+                        )
+                        toast(self.tr(
+                            "预处理完成：成功 {n} 条{extra}；"
+                            "产物与原视频同目录，不覆盖原视频：{dir}",
+                        ).format(
+                            n=len(summary.get("outputs") or []), extra=extra,
+                            dir=out_dir,
+                        ))
+                    if out_dir:
+                        # 成功/部分跳过都点亮「查看产物」：跳过场景产物就在那
+                        preprocess.set_last_output_dir(out_dir)
                 elif ttype == "dedup":
                     self._dedup_done(summary, toast)
                     dedup.show_dedup_result(dict(summary))
@@ -443,22 +471,25 @@ def wire_asset_refresh(
 
 
 def _submit_compare(
-    ctx: Any, srcs: list[str], compare_srcs: dict[str, list[str]],
+    ctx: Any, page: Any, srcs: list[str], compare_srcs: dict[str, list[str]],
 ) -> None:
     from ych.common.schemas import TaskPayload
 
     task_id = ctx.scheduler().submit(TaskPayload(
         type="compare", data={"srcs": srcs, "mode": "both"}))
     compare_srcs[task_id] = srcs
+    page.track_task(task_id)
 
 
 def _submit_dedup(
-    ctx: Any, srcs: list[str], params: list[dict[str, object]],
+    ctx: Any, page: Any, srcs: list[str], params: list[dict[str, object]],
 ) -> None:
     from ych.common.schemas import TaskPayload
 
     items = [{"src": s, "technique_params": params} for s in srcs]
-    ctx.scheduler().submit(TaskPayload(type="dedup", data={"items": items}))
+    task_id = ctx.scheduler().submit(
+        TaskPayload(type="dedup", data={"items": items}))
+    page.track_task(task_id)
 
 
 if __name__ == "__main__":

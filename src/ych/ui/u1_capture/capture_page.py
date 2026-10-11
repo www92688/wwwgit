@@ -47,7 +47,7 @@ _DouyinLoginFn = Callable[[Callable[[bool, str], None]], None]
 class _CoordinatorLike(Protocol):
     def search_multi(
         self, keywords: list[str], filters: Any,
-        per_platform_limit: int, token: Any | None = None,
+        limit: int, token: Any | None = None,
         region: Any | None = None, platform_ids: list[str] | None = None,
     ) -> None: ...
 
@@ -176,6 +176,8 @@ class CapturePage(QWidget):
             self.limit_spin.valueChanged.connect(
                 lambda value: config.set("download_limit", int(value)),
             )
+        self._limit_tip_src = "同时限制单轮搜索的获取条数与单次下载的入队条数"
+        self.limit_spin.setToolTip(self.tr(self._limit_tip_src))
         bottom.addWidget(self.limit_spin)
         self.btn_open_files = QPushButton(self.tr("查看文件"))
         self.btn_open_files.setObjectName("secondaryBtn")
@@ -416,7 +418,8 @@ class CapturePage(QWidget):
         try:
             self.result_list.clear_results()
             self._coordinator.search_multi(
-                keywords, self.filter_panel.to_filters(), 30,
+                keywords, self.filter_panel.to_filters(),
+                self.limit_spin.value(),
                 platform_ids=selected,
             )
         except Exception as exc:
@@ -675,6 +678,7 @@ class CapturePage(QWidget):
         )
         self._keyword_label.setText(self.tr("关键词"))
         self._limit_label.setText(self.tr("单次下载数量上限"))
+        self.limit_spin.setToolTip(self.tr(self._limit_tip_src))
         self.btn_search.setText(self.tr("搜索中…") if self._searching
                                 else self.tr("搜索"))
         self.btn_ai_expand.setText(self.tr("AI 扩展"))

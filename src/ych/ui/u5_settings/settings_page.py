@@ -79,6 +79,8 @@ if TYPE_CHECKING:
             self, service_id: str, base_url: str, api_key: str | None = None,
         ) -> list[str]: ...
 
+        def default_service_id(self) -> str: ...
+
     class _ModelDownloaderLike(QObject):
         progress: dict[str, float]
 
@@ -638,7 +640,11 @@ class SettingsPage(QWidget):
         header_ai.setFlags(Qt.ItemFlag.NoItemFlags)
         header_ai.setForeground(QBrush(QColor(_GRAY)))
         self.service_list.addItem(header_ai)
-        default_id = str(self._config.get("ai_default_service") or "")
+        # 与网关同一判定：单服务未显式设默认时也标 ★（显示与 AI 扩展行为一致）
+        if self._ai_gateway is not None:
+            default_id = str(self._ai_gateway.default_service_id())
+        else:
+            default_id = str(self._config.get("ai_default_service") or "")
         for service_id, svc in self._ai_services_raw().items():
             name = str(svc.get("name") or self.tr("未命名"))
             model = str(svc.get("model") or self.tr("未选模型"))

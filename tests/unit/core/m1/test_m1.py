@@ -1061,6 +1061,35 @@ def test_coordinator_isolation_and_merge(qtbot, tmp_path: Path) -> None:
     coord._worker.join(3000)
 
 
+def test_coordinator_trims_to_budget_round_robin(qtbot, tmp_path: Path) -> None:
+    """总预算截断：超 limit 时按平台轮转保留，多平台均衡且保序。"""
+    pa = FakeSearchPlugin("pa", "cn", metas=[
+        _meta(plugin_id="pa", video_key=f"a{i}") for i in range(4)
+    ])
+    pb = FakeSearchPlugin("pb", "cn", metas=[
+        _meta(plugin_id="pb", video_key=f"b{i}") for i in range(4)
+    ])
+    coord, _history, _db = _coord(qtbot, tmp_path, FakeManager([pa, pb]))
+
+    with qtbot.waitSignal(coord.search_finished, timeout=8000) as blocker:
+        coord.search_multi(["地毯"], SearchFilters(), 5)
+    keys = [m.video_key for m in blocker.args[0].items]
+    assert keys == ["a0", "b0", "a1", "b1", "a2"]
+    coord._worker.join(3000)
+
+
+def test_coordinator_within_budget_no_trim(qtbot, tmp_path: Path) -> None:
+    pa = FakeSearchPlugin(
+        "pa", "cn", metas=[_meta(plugin_id="pa", video_key="a0")],
+    )
+    coord, _history, _db = _coord(qtbot, tmp_path, FakeManager([pa]))
+
+    with qtbot.waitSignal(coord.search_finished, timeout=8000) as blocker:
+        coord.search_multi(["地毯"], SearchFilters(), 5)
+    assert [m.video_key for m in blocker.args[0].items] == ["a0"]
+    coord._worker.join(3000)
+
+
 def test_history_suggestions_prefix(tmp_path: Path) -> None:
     db = Database(tmp_path / "app.db")
     daos = make_daos(db)

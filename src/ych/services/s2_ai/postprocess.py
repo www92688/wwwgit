@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from ych.common.schemas import BBox
 from ych.services.s2_ai.provider import Detection
@@ -9,11 +10,22 @@ from ych.services.s2_ai.provider import Detection
 
 @dataclass
 class RegionSpan:
-    """时域稳定的检测区域（M2 帧级修复只处理激活时段）。"""
+    """时域稳定的检测区域（M2 帧级修复只处理激活时段）。
+
+    manual=True 表示来自用户手动框选：修复遵循用户意图（框内内容视为
+    待清除，紧凑掩码失效时回退整框修复）；auto 检测区域以紧凑掩码为
+    准，掩码为空的帧不贴片（避免误检糊块）。
+
+    temporal_mask：静态区域的时间一致性笔画掩码（uint8, HxW，与 bbox
+    像素矩形对齐、与视频同分辨率），由 M2 检测阶段跨采样帧累积证据
+    生成；非 None 时帧级修复直接采用，不再逐帧求紧凑掩码。
+    """
 
     bbox: BBox
     t_start: float
     t_end: float
+    manual: bool = False
+    temporal_mask: Any = None
 
 
 def iou(a: BBox, b: BBox) -> float:
@@ -68,12 +80,18 @@ def merge_boxes(dets: list[Detection], iou_thr: float) -> list[Detection]:
     return merged
 
 
-def expand_bbox(b: BBox, margin: float) -> BBox:
-    """按比例外扩并 clamp 到 [0,1]。"""
-    new_w = b.w * (1 + 2 * margin)
-    new_h = b.h * (1 + 2 * margin)
-    new_x = b.x - b.w * margin
-    new_y = b.y - b.h * margin
+def expand_bbox(b: BBox, margin: float, min_margin: float = 0.012) -> BBox:
+    """按比例外扩并 clamp 到 [0,1]。
+
+    每侧保底 min_margin：DBNet 文字核心框极薄（h 可低至 0.01），纯比例
+    外扩近乎无效，字幕描边/水印边角会残留；0.012 ≈ 1080p 下 13px。
+    """
+    mx = max(b.w * margin, min_margin)
+    my = max(b.h * margin, min_margin)
+    new_w = b.w + 2 * mx
+    new_h = b.h + 2 * my
+    new_x = b.x - mx
+    new_y = b.y - my
     # clamp：右/下越界时收缩尺寸
     if new_x < 0:
         new_w += new_x
@@ -98,28 +116,53 @@ def temporal_cluster(
 
     跨帧 IoU>iou_link 链接成簇；簇在其活跃时间段内的出现率 ≥presence_ratio
     才认定为静态区域 → RegionSpan(bbox, t_start, t_end)。
+
+    链接补一条中心规则：细长条水印（如横贯画面的半透明 ID）的检测框
+    逐帧抖动会让 IoU 掉到阈值以下（窄条上轻微纵向偏移对 IoU 极其敏
+    感，0.47<0.5 即碎裂），碎簇全被出现率过滤 → 该水印永远到不了修
+    复环节。检测中心落入簇框（含少量外扩）同样链接，且簇框随成员并
+    集增长，抖动不再碎簇。
     """
     n = len(per_frame_dets)
     if n == 0 or len(frame_ts) != n:
         return []
+
+    center_margin = 0.02
 
     @dataclass
     class _Cluster:
         bbox: BBox
         frames: set[int]
 
+    def _contains(cl_bbox: BBox, cx: float, cy: float) -> bool:
+        m = center_margin
+        return (cl_bbox.x - m <= cx <= cl_bbox.x + cl_bbox.w + m
+                and cl_bbox.y - m <= cy <= cl_bbox.y + cl_bbox.h + m)
+
     clusters: list[_Cluster] = []
 
     for fi, dets in enumerate(per_frame_dets):
         for det in dets:
+            cx = det.bbox.x + det.bbox.w / 2
+            cy = det.bbox.y + det.bbox.h / 2
             best_ci = -1
             best_iou = 0.0
+            fallback_ci = -1
             for ci, cl in enumerate(clusters):
                 ov = iou(det.bbox, cl.bbox)
-                if ov > iou_link and ov > best_iou:
-                    best_ci, best_iou = ci, ov
+                if ov > best_iou:
+                    best_iou, best_ci = ov, ci
+                if fallback_ci < 0 and _contains(cl.bbox, cx, cy):
+                    fallback_ci = ci
+            if best_iou <= iou_link:
+                best_ci = fallback_ci   # IoU 不达标时退回中心规则
             if best_ci >= 0:
-                clusters[best_ci].frames.add(fi)
+                cl = clusters[best_ci]
+                x1, y1 = min(cl.bbox.x, det.bbox.x), min(cl.bbox.y, det.bbox.y)
+                x2 = max(cl.bbox.x + cl.bbox.w, det.bbox.x + det.bbox.w)
+                y2 = max(cl.bbox.y + cl.bbox.h, det.bbox.y + det.bbox.h)
+                cl.bbox = BBox(x=x1, y=y1, w=x2 - x1, h=y2 - y1)
+                cl.frames.add(fi)
             else:
                 clusters.append(_Cluster(bbox=det.bbox, frames={fi}))
 

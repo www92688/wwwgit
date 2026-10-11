@@ -16,6 +16,28 @@ def make_frame(w=64, h=48, color=(30, 30, 30)):
 
 
 # ---------- ModelRegistry ----------
+def test_provider_policy_per_model(monkeypatch) -> None:
+    """DML 白名单分流：字幕/CLIP 优先 DML，水印/LaMa 恒 CPU；无 DML 全 CPU。"""
+    from ych.services.s2_ai import model_registry as mr
+
+    monkeypatch.setattr(
+        mr.ort, "get_available_providers",
+        lambda: ["DmlExecutionProvider", "CPUExecutionProvider"],
+    )
+    assert mr._providers_for("subtitle") == [
+        "DmlExecutionProvider", "CPUExecutionProvider"]
+    assert mr._providers_for("clip") == [
+        "DmlExecutionProvider", "CPUExecutionProvider"]
+    assert mr._providers_for("watermark") == ["CPUExecutionProvider"]
+    assert mr._providers_for("inpaint") == ["CPUExecutionProvider"]
+
+    monkeypatch.setattr(
+        mr.ort, "get_available_providers", lambda: ["CPUExecutionProvider"],
+    )
+    for name in ("subtitle", "clip", "watermark", "inpaint"):
+        assert mr._providers_for(name) == ["CPUExecutionProvider"]
+
+
 def test_missing_model_raises_ai001(tmp_path) -> None:
     reg = ModelRegistry(base_dir=tmp_path)
     with pytest.raises(AppError) as exc:
@@ -24,7 +46,7 @@ def test_missing_model_raises_ai001(tmp_path) -> None:
 
 
 def test_corrupt_model_raises_ai002(tmp_path) -> None:
-    (tmp_path / "watermark_yolov8n_640.onnx").write_bytes(b"not-onnx")
+    (tmp_path / "watermark_det_640.onnx").write_bytes(b"not-onnx")
     reg = ModelRegistry(base_dir=tmp_path)
     with pytest.raises(AppError) as exc:
         reg.session("watermark")

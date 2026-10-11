@@ -1,7 +1,10 @@
 # 特征提取总流程（详设 14.1.1/14.1.5）
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import logging
+import os
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -11,6 +14,7 @@ import numpy.typing as npt
 
 from ych.common.cancellation import CancellationToken
 from ych.common.schemas import FeatureSet
+from ych.core.m3_dedup.candidate_cache import user_data_dir
 from ych.core.m3_dedup.motion_analyzer import MotionAnalyzer
 from ych.core.m3_dedup.rhythm_analyzer import RhythmAnalyzer
 from ych.core.m3_dedup.scene_detector import SceneDetector
@@ -26,7 +30,8 @@ MAX_SHOTS = 32
 
 FEATURE_VERSION = "1"
 
-_CACHE_CAP = 64   # 特征缓存条数上限（短视频特征约占 100KB 级）
+_CACHE_CAP = 64   # 内存特征缓存条数上限（短视频特征约占 100KB 级）
+_DISK_CACHE_FILES = 512   # 磁盘特征缓存文件数上限（超出按最旧清理）
 
 
 class CompositionEmbedder:
@@ -71,6 +76,7 @@ class FeatureExtractService:
         extractor: FrameExtractor,
         provider: InferenceProvider,
         max_frames: int = MAX_FRAMES,
+        cache_dir: Path | None = None,
     ) -> None:
         self._prober = prober
         self._extractor = extractor
@@ -83,6 +89,10 @@ class FeatureExtractService:
         # 反复抽同一文件代价高；文件被替换时键变化自然失效
         self._cache: OrderedDict[tuple[str, int, int], FeatureSet] = OrderedDict()
         self._cache_lock = threading.Lock()
+        # 磁盘特征缓存：跨会话复用（同素材重复分析秒出）。命中失败/文件
+        # 损坏一律静默重算——缓存只是加速层，绝不影响结果与画质
+        self._disk_dir = (cache_dir if cache_dir is not None
+                          else user_data_dir() / "feature_cache")
 
     def extract(
         self,
@@ -92,6 +102,11 @@ class FeatureExtractService:
         cached = self._cache_get(path)
         if cached is not None:
             return cached
+        disk = self._disk_get(path)
+        if disk is not None:
+            logger.info("特征缓存命中（磁盘）：%s", Path(path).name)
+            self._cache_put_mem(path, disk)
+            return disk
         info = self._prober.probe(path)
         duration = max(info.duration_s, 1e-6)
         fps = SAMPLE_FPS
@@ -143,6 +158,10 @@ class FeatureExtractService:
             return feat
 
     def _cache_put(self, path: Path, feat: FeatureSet) -> None:
+        self._cache_put_mem(path, feat)
+        self._disk_put(path, feat)
+
+    def _cache_put_mem(self, path: Path, feat: FeatureSet) -> None:
         key = self._cache_key(path)
         if key is None:
             return
@@ -151,4 +170,63 @@ class FeatureExtractService:
             self._cache.move_to_end(key)
             while len(self._cache) > _CACHE_CAP:
                 self._cache.popitem(last=False)
+
+    # ---- 磁盘特征缓存 ----
+    def _disk_file(self, path: Path) -> Path | None:
+        key = self._cache_key(path)
+        if key is None:
+            return None
+        digest = hashlib.sha1("|".join(map(str, key)).encode("utf-8")).hexdigest()
+        return self._disk_dir / f"v{FEATURE_VERSION}_{digest}.npz"
+
+    def _disk_get(self, path: Path) -> FeatureSet | None:
+        f = self._disk_file(path)
+        if f is None or not f.exists():
+            return None
+        try:
+            with np.load(f) as data:
+                if str(data["version"]) != FEATURE_VERSION:
+                    return None
+                return FeatureSet(
+                    composition=data["composition"].astype(np.float32),
+                    shot_mid_ts=[float(x) for x in data["shot_mid_ts"]],
+                    motion_curve=data["motion_curve"].astype(np.float32),
+                    rhythm_hist=data["rhythm_hist"].astype(np.float32),
+                    cut_rate_curve=data["cut_rate_curve"].astype(np.float32),
+                    duration_s=float(data["duration_s"]),
+                    version=str(data["version"]),
+                )
+        except (OSError, ValueError, KeyError, EOFError):
+            logger.debug("特征缓存读取失败（重算）：%s", f.name)
+            return None
+
+    def _disk_put(self, path: Path, feat: FeatureSet) -> None:
+        f = self._disk_file(path)
+        if f is None:
+            return
+        try:
+            self._disk_dir.mkdir(parents=True, exist_ok=True)
+            tmp = f.with_name(f.name + ".tmp")
+            with open(tmp, "wb") as fh:   # 文件对象写入：避免 numpy 追加 .npz 后缀
+                np.savez_compressed(
+                    fh,
+                    composition=feat.composition.astype(np.float32),
+                    shot_mid_ts=np.asarray(feat.shot_mid_ts, dtype=np.float64),
+                    motion_curve=feat.motion_curve.astype(np.float32),
+                    rhythm_hist=feat.rhythm_hist.astype(np.float32),
+                    cut_rate_curve=feat.cut_rate_curve.astype(np.float32),
+                    duration_s=feat.duration_s,
+                    version=feat.version,
+                )
+            os.replace(tmp, f)
+            self._prune_disk()
+        except OSError:
+            logger.debug("特征缓存写入失败（忽略）：%s", f.name)
+
+    def _prune_disk(self) -> None:
+        files = sorted(self._disk_dir.glob("*.npz"),
+                       key=lambda p: p.stat().st_mtime)
+        for old in files[:-_DISK_CACHE_FILES]:
+            with contextlib.suppress(OSError):
+                old.unlink()
 

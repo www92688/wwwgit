@@ -279,7 +279,7 @@ class AppContext:
             filters = FilterOnlyProcessor(self.ffmpeg_runner())
             frames = FrameLevelProcessor(
                 self.ffmpeg_runner(), self.frame_extractor(),
-                self.provider(), self.config(),
+                self.provider(), self.config(), prober=self.prober(),
             )
             pipeline = PreprocessPipeline(
                 self.prober(), filters, subtitles, frames, self.archive(),
@@ -406,7 +406,9 @@ class AppContext:
 
         sched = self.scheduler()
         sched.register_handler("preprocess", lambda task: handle_preprocess_task(
-            task, self.preprocess_pipeline(), self._fail_manager()))
+            task, self.preprocess_pipeline(), self._fail_manager(),
+            progress=lambda ratio: sched.emit_progress(task.task_id, ratio),
+        ))
 
         def handle_dedup(task: Any) -> Any:
             return self._handle_dedup(task)
@@ -426,6 +428,8 @@ class AppContext:
         return cast(Any, self._cache_cast("fail_manager"))
 
     def _handle_dedup(self, task: Any) -> Any:
+        import queue
+        import threading
         import time
 
         from ych.common.cancellation import SkippedSignal, TaskCanceled
@@ -433,76 +437,156 @@ class AppContext:
 
         payload: Any = task.payload
         items = list(payload.data.get("items") or [])
+        token = getattr(task, "token", None)
+        sched = self.scheduler()
+        total = max(1, len(items))
+        pipeline = self.dedup_pipeline()
+
         outputs: list[str] = []
         failed = skipped = 0
         # 明细反馈用：「输出已存在」型跳过记录文件名；取消不计入（语义不同）
         skipped_names: list[str] = []
         skipped_srcs: list[str] = []
         failed_msgs: list[str] = []
-        token = getattr(task, "token", None)
         before_pct: list[float] = []
         after_pct: list[float] = []
-        sched = self.scheduler()
-        total = max(1, len(items))
+        out_dir: str | None = None
 
-        def progress_for(idx: int) -> Any:
-            # 单条 ffmpeg 进度 → 批次整体 (idx+ratio)/total；限频防信号风暴，
-            # 结尾 1.0 不限频保证收尾必达
-            last = [0.0]
+        # 进度 = 各条贡献之和：转码 0→0.7、对比 0.7→1.0、终态 1.0。
+        # 批次流水线化后"第 i 条对比"与"第 i+1 条转码"并行，两条同时
+        # 有贡献，曲线单调推进、终值恰好 1.0。工作线程只把目标贡献值
+        # 入队，由本（TaskWorker）线程统一发射——调度器信号始终源自
+        # 任务工作线程，保持既有线程约定
+        contrib: dict[int, float] = {}
+        contrib_lock = threading.Lock()
+        progress_q: queue.Queue[float] = queue.Queue()
+        last_emit = [0.0]
 
-            def on_progress(ratio: float) -> None:
-                now = time.monotonic()
-                if ratio < 1.0 and now - last[0] < 0.25:
+        def bump(idx: int, value: float) -> None:
+            with contrib_lock:
+                contrib[idx] = value
+                ratio = min(sum(contrib.values()) / total, 1.0)
+            progress_q.put(ratio)
+
+        def drain_progress(final: bool = False) -> None:
+            now = time.monotonic()
+            while True:
+                try:
+                    ratio = progress_q.get_nowait()
+                except queue.Empty:
                     return
-                last[0] = now
-                sched.emit_progress(task.task_id, (idx + ratio) / total)
-
-            return on_progress
+                if not final and ratio < 1.0 and now - last_emit[0] < 0.25:
+                    continue
+                last_emit[0] = now
+                sched.emit_progress(task.task_id, ratio)
 
         def output_name_for(src: str) -> str:
             try:
-                return self.dedup_pipeline().output_path_for(Path(src)).name
+                return pipeline.output_path_for(Path(src)).name
             except Exception:
                 return Path(src).name
 
-        out_dir: str | None = None
-        for idx, raw in enumerate(items):
-            src = str(raw.get("src"))
-            params = list(raw.get("technique_params") or [])
+        # 批次流水线：生产者逐条转码，消费者做前一条的重复度对比——
+        # 对比（抽帧+特征提取）被下一条的转码时间掩盖，批次吞吐≈2×。
+        # 队列提供背压：转码最多领先对比一条
+        handoff: queue.Queue[tuple[int, Any] | None] = queue.Queue(maxsize=2)
+
+        def produce() -> None:
+            nonlocal failed, skipped
+
+            def tr_progress(idx: int) -> Any:
+                def cb(r: float) -> None:
+                    bump(idx, r)
+                return cb
+
             try:
-                result = self.dedup_pipeline().execute_item(
-                    Path(src), params, progress_for(idx), token,
-                )
-                outputs.append(str(result.out_path))
-                if out_dir is None:
-                    out_dir = str(result.out_path.parent)
-                if result.before_pct is not None:
-                    before_pct.append(result.before_pct)
-                if result.after_pct is not None:
-                    after_pct.append(result.after_pct)
-            except TaskCanceled:
-                # 用户取消：上抛交 TaskWorker 置 canceled，剩余条目不再计失败
-                raise
-            except SkippedSignal:
-                skipped += 1
-                skipped_names.append(output_name_for(src))
-                skipped_srcs.append(src)
-            except Exception as exc:
-                code = getattr(exc, "code", "")
-                if code == "TASK004":
-                    skipped += 1
-                    continue
-                failed += 1
-                failed_msgs.append(f"{Path(src).name}：{exc}")
-                self._fail_manager().record(
-                    task, exc if isinstance(exc, Exception) else RuntimeError(str(exc)))
+                for idx, raw in enumerate(items):
+                    if token is not None and token.cancelled:
+                        break
+                    src = str(raw.get("src"))
+                    params = list(raw.get("technique_params") or [])
+                    try:
+                        outcome = pipeline.transcode_item(
+                            Path(src), params, tr_progress(idx), token,
+                        )
+                    except TaskCanceled:
+                        break
+                    except SkippedSignal:
+                        skipped += 1
+                        skipped_names.append(output_name_for(src))
+                        skipped_srcs.append(src)
+                        bump(idx, 1.0)
+                        continue
+                    except Exception as exc:
+                        code = getattr(exc, "code", "")
+                        if code == "TASK004":
+                            skipped += 1
+                            bump(idx, 1.0)
+                            continue
+                        failed += 1
+                        failed_msgs.append(f"{Path(src).name}：{exc}")
+                        err = (exc if isinstance(exc, Exception)
+                               else RuntimeError(str(exc)))
+                        self._fail_manager().record(task, err)
+                        bump(idx, 1.0)
+                        continue
+                    handoff.put((idx, outcome))
             finally:
-                sched.emit_progress(task.task_id, (idx + 1) / total)
+                # 哨兵必达：produce 任何路径退出都要唤醒消费者，防挂死
+                handoff.put(None)
+
+        def consume() -> None:
+            nonlocal failed, out_dir
+
+            def cmp_progress(idx: int) -> Any:
+                def cb(r: float) -> None:
+                    bump(idx, 0.7 + 0.3 * r)
+                return cb
+
+            while True:
+                item = handoff.get()
+                if item is None:
+                    break
+                idx, outcome = item
+                try:
+                    before, after = pipeline.compare_item(
+                        outcome.src, outcome.out, cmp_progress(idx),
+                    )
+                    outputs.append(str(outcome.out))
+                    if out_dir is None:
+                        out_dir = str(outcome.out.parent)
+                    if before is not None:
+                        before_pct.append(before)
+                    if after is not None:
+                        after_pct.append(after)
+                except Exception as exc:
+                    failed += 1
+                    failed_msgs.append(f"{outcome.src.name}：{exc}")
+                    self._fail_manager().record(task, exc)
+                finally:
+                    bump(idx, 1.0)
+
+        consumer = threading.Thread(target=consume, daemon=True,
+                                    name="ych-dedup-compare")
+        consumer.start()
+        producer = threading.Thread(target=produce, daemon=True,
+                                    name="ych-dedup-transcode")
+        producer.start()
+        # 进度在本线程边跑边发（终值不限频保证收尾必达）
+        while producer.is_alive() or consumer.is_alive():
+            drain_progress()
+            time.sleep(0.05)
+        drain_progress(final=True)
+        if token is not None and token.cancelled:
+            # 用户取消：上抛交 TaskWorker 置 canceled（已产出条目保留，
+            # 未处理条目与旧串行语义一致：不计失败不记跳过）
+            raise TaskCanceled("任务已被取消")
+
         first = outputs[0] if outputs else None
         if out_dir is None and skipped_names and items:
             # 全部跳过时无新产出：以首条素材的应输出目录为准（现存文件就在那）
             try:
-                out_dir = str(self.dedup_pipeline().output_path_for(
+                out_dir = str(pipeline.output_path_for(
                     Path(str(items[0].get("src")))).parent)
             except Exception:
                 out_dir = None

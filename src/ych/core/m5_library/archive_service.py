@@ -153,7 +153,9 @@ class ArchiveService:
         src = Path(src)
         out_name = src.stem + suffix + src.suffix
         if out_root is None:
-            return src.with_name(out_name)
+            # 预处理产物统一放原视频同目录的「预处理」文件夹：
+            # 不与原素材混放，用户按文件夹即可找到全部产物
+            return src.with_name("预处理") / out_name
         try:
             rel = src.relative_to(self._wd.workdir())
         except ValueError as exc:

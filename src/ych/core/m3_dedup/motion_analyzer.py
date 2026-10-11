@@ -1,12 +1,19 @@
 # 运镜轨迹特征（详设 14.1.3）：Farneback 光流 → 相似变换 → pan/zoom 曲线
 from __future__ import annotations
 
+from typing import cast
+
 import cv2
 import numpy as np
 import numpy.typing as npt
 
 _CURVE_LEN = 32
 _GRID_STEP_PX = 16
+# 光流是全部特征里最贵的一步（Farneback 每对帧数十毫秒级）；两条压缩手段
+# 都不改变输出语义：pan/zoom 是归一化量，与分辨率无关；曲线最终重采样到
+# 32 点，均匀抽样帧对只影响极短瞬间的采样密度
+_MOTION_MAX_SIDE = 320    # 光流分析降采样上限（分析帧 640 → 光流 320）
+_MAX_PAIRS = 96           # 帧对均匀抽样上限（300 帧 → 299 对 → ≤96 对）
 
 _FB_PARAMS = dict(
     pyr_scale=0.5, levels=3, winsize=15,
@@ -57,6 +64,33 @@ def _resample(series: list[tuple[float, float, float]],
     return out.astype(np.float32)
 
 
+def _motion_small(img: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """光流工作帧：长边 ≤ _MOTION_MAX_SIDE（小图原样返回）。"""
+    h, w = img.shape[:2]
+    side = max(h, w)
+    if side <= _MOTION_MAX_SIDE or side == 0:
+        return img
+    if w >= h:
+        nw = _MOTION_MAX_SIDE
+        nh = max(2, round(h * nw / w / 2) * 2)
+    else:
+        nh = _MOTION_MAX_SIDE
+        nw = max(2, round(w * nh / h / 2) * 2)
+    return cast(
+        npt.NDArray[np.uint8],
+        cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA),
+    )
+
+
+def _pair_indices(n_frames: int) -> npt.NDArray[np.intp]:
+    """参与光流的帧对左帧下标（均匀抽样，帧数少时全部保留）。"""
+    n_pairs = n_frames - 1
+    if n_pairs <= _MAX_PAIRS:
+        return np.arange(n_pairs, dtype=np.intp)
+    sel = np.linspace(0, n_pairs - 1, _MAX_PAIRS)
+    return np.unique(sel.astype(np.intp))
+
+
 class MotionAnalyzer:
     """相邻帧光流 → (32,3) 运镜曲线，逐列 clip 到 [-1,1]。"""
 
@@ -64,8 +98,14 @@ class MotionAnalyzer:
         self,
         frames_img: list[npt.NDArray[np.uint8]],
     ) -> npt.NDArray[np.float32]:
-        triplets: list[tuple[float, float, float]] = []
-        for i in range(1, len(frames_img)):
-            triplets.append(_pair_motion(frames_img[i - 1], frames_img[i]))
+        n = len(frames_img)
+        if n < 2:
+            triplets: list[tuple[float, float, float]] = []
+        else:
+            small = [_motion_small(f) for f in frames_img]
+            triplets = [
+                _pair_motion(small[i], small[i + 1])
+                for i in _pair_indices(n)
+            ]
         curve = _resample(triplets, _CURVE_LEN)
         return np.clip(curve, -1.0, 1.0).astype(np.float32)

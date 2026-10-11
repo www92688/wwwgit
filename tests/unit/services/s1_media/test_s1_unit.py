@@ -18,8 +18,8 @@ FIXTURES = Path(__file__).parents[3] / "fixtures" / "fake_ffmpeg"
 def test_encoder_spec_to_args_with_audio() -> None:
     args = EncoderSpec().to_args(with_audio=True)
     joined = " ".join(args)
-    assert "-c:v libx264" in joined and "-crf 20" in joined
-    assert "-preset medium" in joined and "-pix_fmt yuv420p" in joined
+    assert "-c:v libx264" in joined and "-crf 18" in joined
+    assert "-preset faster" in joined and "-pix_fmt yuv420p" in joined
     assert "-c:a aac" in joined and "-b:a 128k" in joined and "-ar 44100" in joined
     assert "-movflags +faststart" in joined
     assert "-an" not in joined
@@ -114,3 +114,43 @@ def test_probe_chinese_path_utf8_output(prober, tmp_path) -> None:
     assert info.width == 64 and info.height == 48
     assert info.duration_s == pytest.approx(1.041667, abs=1e-4)
     assert info.size_bytes == 12345
+
+
+# ---------- ProbeService 探测缓存 ----------
+def test_probe_caches_by_file_identity(prober, tmp_path, monkeypatch) -> None:
+    """同文件重复 probe 只跑一次子进程；文件被替换（mtime 变化）后重探。"""
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"x")
+    calls = {"n": 0}
+    real_run = __import__("subprocess").run
+
+    def counting_run(*args, **kwargs):   # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        return real_run(*args, **kwargs)
+
+    import ych.services.s1_media.probe_service as ps_mod
+
+    monkeypatch.setattr(ps_mod.subprocess, "run", counting_run)
+
+    first = prober.probe(media)
+    second = prober.probe(media)          # 命中缓存：不再起子进程
+    assert calls["n"] == 1
+    assert second.width == first.width
+
+    import os
+
+    os.utime(media, (1000000000, 1000000000))   # 文件被替换 → 缓存键失效
+    prober.probe(media)
+    assert calls["n"] == 2
+
+
+def test_probe_failure_not_cached(prober, tmp_path, monkeypatch) -> None:
+    """探测失败不缓存：下一次调用仍真实执行（文件可能已修复）。"""
+    media = tmp_path / "broken.mp4"
+    media.write_bytes(b"x")
+    monkeypatch.setenv("FAKE_FFPROBE_FAIL", "1")
+    with pytest.raises(AppError):
+        prober.probe(media)
+    monkeypatch.delenv("FAKE_FFPROBE_FAIL")
+    info = prober.probe(media)
+    assert info.width == 64

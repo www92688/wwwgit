@@ -1,23 +1,37 @@
 # 素材树（U2）：M5 索引数据源；分类/关键词/日期三级勾选
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem, QWidget
+
+_DONE_MARK = " ✓"
+_GRAY = QColor("#8a8a8a")
 
 
 class AssetTree(QTreeWidget):
-    """set_assets(rows) → 三级树（大类/关键词/日期）；checked_files() 汇总。"""
+    """set_assets(rows) → 三级树（大类/关键词/日期）；checked_files() 汇总。
+
+    output_probe(src) 为真时叶子标 ✓（置灰）：该素材已有 _cleaned 产物，
+    重跑会被跳过——用户无需靠"点了没反应"来发现这一点。
+    """
 
     selection_changed = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        output_probe: Callable[[str], bool] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setHeaderHidden(True)
         self._cascading = False           # 程序化改勾选态期间抑制递归
         self._rows: list[Any] = []        # 最近一次数据（重翻译重建用）
+        self._output_probe = output_probe
         self.itemChanged.connect(self._on_item_changed)
 
     # ---- 勾选级联：父→子全选/全不选，子→父三态汇总 ----
@@ -91,16 +105,24 @@ class AssetTree(QTreeWidget):
                 kw_item.setCheckState(0, Qt.CheckState.Unchecked)
                 for _date, rws in dates.items():
                     for r in rws:
-                        leaf = QTreeWidgetItem([Path(r.path).name])
+                        done = bool(
+                            self._output_probe is not None
+                            and self._output_probe(str(r.path)),
+                        )
+                        leaf = QTreeWidgetItem(
+                            [Path(r.path).name + (_DONE_MARK if done else "")],
+                        )
                         leaf.setData(0, Qt.ItemDataRole.UserRole, r.path)
                         leaf.setFlags(
                             leaf.flags() | Qt.ItemFlag.ItemIsUserCheckable,
                         )
+                        if done:
+                            leaf.setForeground(0, QBrush(_GRAY))
                         if str(r.path) in checked:
                             leaf.setCheckState(0, Qt.CheckState.Checked)
                         else:
                             leaf.setCheckState(0, Qt.CheckState.Unchecked)
-                        leaf.setToolTip(0, self._leaf_tooltip(r))
+                        leaf.setToolTip(0, self._leaf_tooltip(r, done))
                         kw_item.addChild(leaf)
                 cat_item.addChild(kw_item)
             self.addTopLevelItem(cat_item)
@@ -132,10 +154,14 @@ class AssetTree(QTreeWidget):
 
     def retranslate(self) -> None:
         """语言切换：用缓存的行数据重建（勾选状态经 set_assets 保留）。"""
+        self.refresh()
+
+    def refresh(self) -> None:
+        """用缓存行数据重建：产物标记过期（批次刚完成）时调用。"""
         if getattr(self, "_rows", None):
             self.set_assets(self._rows)
 
-    def _leaf_tooltip(self, r: Any) -> str:
+    def _leaf_tooltip(self, r: Any, done: bool = False) -> str:
         """叶子 Tooltip：完整路径 + 可用的时长/分辨率信息。"""
         tip = str(r.path)
         duration = getattr(r, "duration_s", 0) or 0
@@ -145,6 +171,10 @@ class AssetTree(QTreeWidget):
             tip += "\n" + self.tr("时长 {d}s").format(d=f"{duration:.0f}")
             if width and height:
                 tip += f" · {width}x{height}"
+        if done:
+            tip += "\n" + self.tr(
+                "✓ 已处理（存在同名 _cleaned.mp4，重跑会跳过）",
+            )
         return tip
 
     # ---- 汇总 ----

@@ -9,7 +9,7 @@ import pytest
 
 from ych.common.errors import ERR_AI_INVALID_INPUT, AppError
 from ych.common.schemas import CompareTarget, DimScores, FeatureSet
-from ych.core.m3_dedup.motion_analyzer import MotionAnalyzer, _resample
+from ych.core.m3_dedup.motion_analyzer import MotionAnalyzer, _motion_small, _resample
 from ych.core.m3_dedup.rhythm_analyzer import RhythmAnalyzer
 from ych.core.m3_dedup.scene_detector import SceneDetector, frame_hist_diff
 from ych.core.m3_dedup.similarity import (
@@ -83,6 +83,52 @@ def test_motion_static_frames_near_zero() -> None:
     frames = [_checker(0.0, 0.0)] * 5
     curve = MotionAnalyzer().analyze(frames)
     assert float(np.abs(curve).max()) < 1e-3
+
+
+def test_pair_indices_few_frames_keep_all() -> None:
+    from ych.core.m3_dedup.motion_analyzer import _pair_indices
+
+    idx = _pair_indices(6)                  # 6 帧 → 5 对全保留
+    assert idx.tolist() == [0, 1, 2, 3, 4]
+
+
+def test_pair_indices_caps_and_covers_range() -> None:
+    from ych.core.m3_dedup.motion_analyzer import _MAX_PAIRS, _pair_indices
+
+    idx = _pair_indices(301)                # 300 对 → 抽样封顶
+    assert len(idx) == _MAX_PAIRS
+    assert int(idx[0]) == 0 and int(idx[-1]) == 299   # 首尾帧对仍在
+
+
+def test_motion_many_frames_shape_and_static_zero() -> None:
+    """300 帧（抽样生效路径）：静态序列曲线恒零，形状不变。"""
+    frames = [_checker(0.0, 0.0)] * 300
+    curve = MotionAnalyzer().analyze(frames)
+    assert curve.shape == (32, 3)
+    assert float(np.abs(curve).max()) < 1e-3
+
+
+def test_motion_downscale_keeps_normalized_pan() -> None:
+    """640 输入经光流降采样后，归一化 pan 与直接以 320 输入一致。
+
+    用细格子棋盘格（格子 ≤ winsize，两种尺度 Farneback 都可跟踪；
+    大格子棋盘格内部无梯度，本就不适合验证光流）。
+    """
+    def fine_checker(shift: float) -> np.ndarray:
+        w, h = 640, 480
+        xs = np.arange(w)[None, :] + shift
+        ys = np.arange(h)[:, None]
+        phase = ((xs // 16).astype(int) + (ys // 16).astype(int)) % 2
+        gray = np.where(phase == 0, 235, 20).astype(np.uint8)
+        return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+    big = [fine_checker(4.0 * i) for i in range(6)]
+    small = [_motion_small(f) for f in big]   # 640 → 320
+    assert max(small[0].shape[:2]) == 320
+    pan_big = float(MotionAnalyzer().analyze(big)[:, 0].mean())
+    pan_small = float(MotionAnalyzer().analyze(small)[:, 0].mean())
+    assert abs(pan_big) > 0.001               # 明显非零
+    assert pan_big == pytest.approx(pan_small, abs=1e-4)
 
 
 def test_resample_constant_series() -> None:

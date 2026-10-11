@@ -42,7 +42,10 @@ def no_contract_check(monkeypatch):
     )
 
 
-def test_no_url_reports_manual_placement(tmp_path) -> None:
+def test_no_url_reports_manual_placement(tmp_path, monkeypatch) -> None:
+    monkeypatch.setitem(MODEL_MANIFEST, "watermark", md.ModelSpec(
+        key="watermark", file="wm.onnx", desc="d", urls=[],
+    ))
     dl = ModelDownloader(http=None, base_dir=tmp_path)
     with pytest.raises(AppError) as exc:
         dl.download("watermark")
@@ -101,7 +104,7 @@ def test_import_file_copies_and_verifies(tmp_path) -> None:
     src = tmp_path / "elsewhere.onnx"
     src.write_bytes(b"model-bytes")
     out = dl.import_file("watermark", src)
-    assert out == tmp_path / "watermark_yolov8n_640.onnx"
+    assert out == tmp_path / "watermark_det_640.onnx"
     assert out.read_bytes() == b"model-bytes"
     assert not Path(f"{out}.importing").exists()
     assert dl.exists("watermark")
@@ -111,7 +114,7 @@ def test_import_file_missing_source_raises(tmp_path) -> None:
     dl = ModelDownloader(http=None, base_dir=tmp_path)
     with pytest.raises(AppError):
         dl.import_file("watermark", tmp_path / "nope.onnx")
-    assert not (tmp_path / "watermark_yolov8n_640.onnx").exists()
+    assert not (tmp_path / "watermark_det_640.onnx").exists()
 
 
 def test_import_contract_failure_discards_copy(tmp_path, monkeypatch) -> None:
@@ -124,5 +127,5 @@ def test_import_contract_failure_discards_copy(tmp_path, monkeypatch) -> None:
     dl = ModelDownloader(http=None, base_dir=tmp_path)
     with pytest.raises(AppError):
         dl.import_file("watermark", src)
-    assert not (tmp_path / "watermark_yolov8n_640.onnx").exists()
-    assert not (tmp_path / "watermark_yolov8n_640.onnx.importing").exists()
+    assert not (tmp_path / "watermark_det_640.onnx").exists()
+    assert not (tmp_path / "watermark_det_640.onnx.importing").exists()

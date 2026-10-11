@@ -20,13 +20,24 @@ class AiGateway:
         self._client = RemoteLLMClient(http)
 
     # ---- 配置 ----
-    def default_service(self) -> dict[str, object] | None:
-        """默认服务定义 {name, base_url, model, ...}；无/缺关键字段返回 None。"""
+    def default_service_id(self) -> str:
+        """生效默认服务 id：显式默认有效则用之；否则唯一服务自动视为默认。"""
         services = self._config.get("ai_services")
         default_id = str(self._config.get("ai_default_service") or "")
-        if not isinstance(services, dict) or default_id not in services:
+        if isinstance(services, dict) and default_id in services:
+            return default_id
+        # 单服务免手动设默认（含显式默认指向已删服务的残留态）
+        if isinstance(services, dict) and len(services) == 1:
+            return str(next(iter(services)))
+        return ""
+
+    def default_service(self) -> dict[str, object] | None:
+        """默认服务定义 {name, base_url, model, ...}；无/缺关键字段返回 None。"""
+        service_id = self.default_service_id()
+        services = self._config.get("ai_services")
+        if not service_id or not isinstance(services, dict):
             return None
-        svc = services[default_id]
+        svc = services.get(service_id)
         if not isinstance(svc, dict):
             return None
         if not str(svc.get("base_url") or "") or not str(svc.get("model") or ""):
@@ -55,7 +66,7 @@ class AiGateway:
             from ych.common.errors import ERR_AI_REMOTE, AppError
 
             raise AppError(ERR_AI_REMOTE, "尚未配置默认 AI 服务，请到设置页添加")
-        default_id = str(self._config.get("ai_default_service") or "")
+        default_id = self.default_service_id()
         system, user = build_prompts(keyword, count)
         raw = self._client.chat(
             str(svc.get("base_url") or ""),

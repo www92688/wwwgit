@@ -205,3 +205,30 @@ def test_feature_extract_service_shapes(m3) -> None:
     assert feat.rhythm_hist.shape == (16,)
     assert feat.cut_rate_curve.shape == (32,)
     assert feat.duration_s == pytest.approx(1.5, abs=0.3)
+
+
+def test_feature_cache_disk_hit_across_instances(m3, tmp_path: Path) -> None:
+    """第二个服务实例同素材零重推理（磁盘缓存跨会话命中）。"""
+    import numpy as np
+
+    calls: list[int] = []
+
+    class Counting(DummyProvider):
+        def embed_frames(self, frames):   # type: ignore[no-untyped-def]
+            calls.append(len(frames))
+            return super().embed_frames(frames)
+
+    cache_dir = tmp_path / "feature_cache"
+    svc1 = FeatureExtractService(
+        m3.prober, m3.extractor, Counting(), cache_dir=cache_dir,
+    )
+    f1 = svc1.extract(m3.src, None)
+    assert len(calls) == 1
+
+    svc2 = FeatureExtractService(
+        m3.prober, m3.extractor, Counting(), cache_dir=cache_dir,
+    )
+    f2 = svc2.extract(m3.src, None)
+    assert len(calls) == 1                          # 第二实例零重推理
+    assert np.allclose(f1.composition, f2.composition)
+    assert f2.version == f1.version

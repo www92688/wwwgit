@@ -23,8 +23,10 @@ class RegionTemporal:
         frame_ts: list[float],
         fps: float,
         margin: float = MARGIN_RATIO,
+        presence_ratio: float = 0.6,
     ) -> list[RegionSpan]:
-        spans = temporal_cluster(per_frame_dets, frame_ts)
+        spans = temporal_cluster(per_frame_dets, frame_ts,
+                                 presence_ratio=presence_ratio)
         stabilized = stabilize_regions(spans, fps)
         return [
             RegionSpan(bbox=expand_bbox(s.bbox, margin),
@@ -42,4 +44,5 @@ def manual_spans(
         return []
     t0 = max(0.0, regions.time_start_s)
     t1 = duration_s if regions.time_end_s < 0 else min(regions.time_end_s, duration_s)
-    return [RegionSpan(bbox=rect, t_start=t0, t_end=t1) for rect in regions.rects]
+    return [RegionSpan(bbox=rect, t_start=t0, t_end=t1, manual=True)
+            for rect in regions.rects]

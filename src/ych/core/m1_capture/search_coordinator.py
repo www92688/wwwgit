@@ -17,6 +17,22 @@ from ych.services.s5_base.config_service import ConfigService
 logger = logging.getLogger("ych.m1")
 
 
+def _trim_round_robin(items: list[VideoMeta], limit: int) -> list[VideoMeta]:
+    """超预算时按平台轮转保留，各平台均衡占比且不偏向先搜到的平台。"""
+    if limit <= 0 or len(items) <= limit:
+        return items
+    buckets: dict[str, list[VideoMeta]] = {}
+    for it in items:
+        buckets.setdefault(it.plugin_id, []).append(it)
+    queues = list(buckets.values())
+    trimmed: list[VideoMeta] = []
+    while len(trimmed) < limit and any(queues):
+        for q in queues:
+            if q and len(trimmed) < limit:
+                trimmed.append(q.pop(0))
+    return trimmed
+
+
 @dataclass
 class SearchResultSet:
     keyword: str
@@ -47,13 +63,15 @@ class SearchCoordinator(QObject):
         self,
         keywords: list[str],
         filters: SearchFilters,
-        per_platform_limit: int = 30,
+        limit: int = 30,
         token: CancellationToken | None = None,
         region: Region | None = None,
         platform_ids: list[str] | None = None,
     ) -> None:
         """异步入口：立即返回，结果经 search_finished/search_failed 通知。
 
+        limit 为单轮（单关键词）结果总预算：各平台最多取 limit 条，
+        合并筛选后超预算时按平台轮转截断（多平台均衡，不偏向先搜者）。
         platform_ids 非空时只搜索勾选的平台（None=全部启用平台）。
         """
         if self._worker is not None and self._worker.is_alive():
@@ -70,7 +88,7 @@ class SearchCoordinator(QObject):
         regions: list[Region] = [region] if region is not None else ["cn", "global"]
         worker = threading.Thread(
             target=self._run,
-            args=(list(keywords), filters, per_platform_limit, token, regions,
+            args=(list(keywords), filters, limit, token, regions,
                   platform_ids),
             daemon=True,
             name="ych-search-coordinator",
@@ -135,7 +153,7 @@ class SearchCoordinator(QObject):
                 unavailable.append((p.id, f"{code} {detail}" if code else detail))
                 continue
             items.extend(found)
-        merged = self._filter.apply(items, filters)
+        merged = _trim_round_robin(self._filter.apply(items, filters), limit)
         if used_ids:
             self._history.record(keyword, used_ids)
         return SearchResultSet(

@@ -7,6 +7,8 @@ import xml.etree.ElementTree as ET
 
 EN: dict[tuple[str, str], str] = {
     ("AssetTree", "未分类"): "Uncategorized",
+    ("AssetTree", "✓ 已处理（存在同名 _cleaned.mp4，重跑会跳过）"):
+        "✓ Processed (a same-named _cleaned.mp4 exists; re-running skips it)",
     ("AssetTree", "未命名"): "Untitled",
     ("AssetTree", "未知日期"): "Unknown date",
     ("AssetTree", "时长 {d}s"): "Duration {d}s",
@@ -23,6 +25,9 @@ EN: dict[tuple[str, str], str] = {
     ("CapturePage", "外网检测失败：{msg}"): "Foreign network check failed: {msg}",
     ("CapturePage", "搜索发起失败：{msg}"): "Failed to start the search: {msg}",
     ("CapturePage", "打开文件管理器失败"): "Failed to open the file manager",
+    ("CapturePage", "同时限制单轮搜索的获取条数与单次下载的入队条数"):
+        "Caps both how many items one search fetches and how many "
+        "one download enqueues",
     ("CapturePage", "国内平台（抖音可用，其余为占位）"):
         "CN platforms (Douyin available; others are placeholders)",
     ("CapturePage", "登录抖音"): "Log in to Douyin",
@@ -71,6 +76,7 @@ EN: dict[tuple[str, str], str] = {
     ("DedupPage", "打开失败：文件不存在或系统没有关联的播放器"):
         "Failed to open: the file does not exist or no player is "
         "associated with it",
+    ("DedupPage", "任务进行中："): "Task in progress: ",
     ("DedupResultBar", "打开输出目录"): "Open output folder",
     ("DedupResultBar", "去重结果"): "Dedup result",
     ("DedupResultBar", "成功 {n} 条"): "{n} succeeded",
@@ -188,6 +194,20 @@ EN: dict[tuple[str, str], str] = {
         "This batch has been submitted; no need to click again",
     ("PreprocessPage", "处理服务未就绪，无法开始处理"):
         "Processing service not ready, cannot start",
+    ("PreprocessPage", "上一批预处理仍在进行中（进度见进度条），"
+                       "请等它完成后再提交"):
+        "The previous batch is still running (see the progress bar); "
+        "wait for it to finish before submitting again",
+    ("PreprocessPage", "本页提交的预处理任务进度（完成后自动隐藏）"):
+        "Progress of preprocess tasks submitted from this page "
+        "(hides when done)",
+    ("PreprocessPage",
+     "产物保存在原视频同目录：<原名>_cleaned.mp4，不覆盖原视频"):
+        "Output is saved next to the original video as "
+        "<name>_cleaned.mp4; the original is never overwritten",
+    ("PreprocessPage", "查看产物"): "View output",
+    ("PreprocessPage", "产物目录不存在或尚未产生"):
+        "Output folder does not exist yet",
     ("PreprocessPage", "预览能力未装配，无法加载素材帧"):
         "Preview is not wired up; cannot load the frame",
     ("ReportView", "综合重复度"): "Overall similarity",
@@ -324,6 +344,19 @@ EN: dict[tuple[str, str], str] = {
     ("_Bridge", "预处理完成：成功 {n} 条{extra}；输出与原文件同目录（_cleaned 后缀）"):
         "Preprocess completed: {n} succeeded{extra}; output is saved next to "
         "the source files (with _cleaned suffix)",
+    ("_Bridge", "预处理完成：成功 {n} 条{extra}；"
+                "产物在原视频同目录的「预处理」文件夹：{dir}"):
+        "Preprocess completed: {n} succeeded{extra}; output is saved next to "
+        "each source video (originals untouched): {dir}",
+    ("_Bridge", "预处理完成：成功 {n} 条{extra}；"
+                "产物与原视频同目录，不覆盖原视频：{dir}"):
+        "Preprocess completed: {n} succeeded{extra}; output is saved next to "
+        "each source video (originals untouched): {dir}",
+    ("_Bridge", "输出已存在，未重新处理：{names}\n"
+                "如需重新生成，请删除「预处理」文件夹中的同名 _cleaned.mp4 文件"):
+        "Outputs already exist; nothing was reprocessed: {names}\n"
+        "To regenerate, delete the same-named _cleaned.mp4 file in the "
+        "预处理/ folder",
     ("_Bridge", "；重复度 {a}% → {b}%"): "; similarity {a}% → {b}%",
     ("_Bridge", "去重完成：成功 {n} 条{extra}{tail}；输出在 已去重/ 目录"):
         "Dedup completed: {n} succeeded{extra}{tail}; output is in the "
@@ -368,6 +401,12 @@ MANUAL: dict[str, dict[str, str]] = {
         "去重工作台": "Dedup",
         "失败列表": "Failures",
         "设置": "Settings",
+    },
+    "PreprocessPage": {
+        # 经变量传入 tr()（_output_hint_src），lupdate 提取不到
+        "产物保存在原视频同目录的「预处理」文件夹：<原名>_cleaned.mp4，不覆盖原视频":
+            "Output is saved next to the original video as "
+            "<name>_cleaned.mp4; the original is never overwritten",
     },
     "OptionPanel": {
         "关闭": "Off",

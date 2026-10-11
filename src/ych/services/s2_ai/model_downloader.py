@@ -56,17 +56,23 @@ MODEL_MANIFEST: dict[str, ModelSpec] = {
             "https://hf-mirror.com/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx",
         ],
     ),
-    # watermark 为项目自训练 YOLO（输出已带 NMS 的 (N,6) 契约），无公开同构模型；
-    # clip 需要与本地预处理/嵌入契约一致的 ViT-B/32 图像塔导出，公开导出输入名不统一。
+    # watermark：社区公开水印检测 YOLO11（标准 ultralytics 导出，预 NMS
+    # (C,anchors) 布局，推理端已适配）；自训模型如需替换，转置布局同样兼容。
     "watermark": ModelSpec(
-        key="watermark", file="watermark_yolov8n_640.onnx",
-        desc="水印检测（自训练；缺失自动降级模板匹配，无需下载）",
-        urls=[],
+        key="watermark", file="watermark_det_640.onnx",
+        desc="水印检测（缺失自动降级模板匹配）",
+        urls=[
+            "https://hf-mirror.com/ayan4m1/Watermark-Detection-YOLO11-ONNX/resolve/main/onnx/model.onnx",
+        ],
     ),
+    # clip：ViT-B/32 图像塔（输入 pixel_values 动态 batch、输出 image_embeds
+    # (B,512)），与本地预处理/嵌入契约一致，已实测通过校验。
     "clip": ModelSpec(
         key="clip", file="clip_vitb32_image.onnx",
-        desc="CLIP 图像嵌入（重复度分析；缺失自动降级经典特征，无需下载）",
-        urls=[],
+        desc="CLIP 图像嵌入（重复度分析；缺失自动降级经典特征）",
+        urls=[
+            "https://hf-mirror.com/Xenova/clip-vit-base-patch32/resolve/main/onnx/vision_model.onnx",
+        ],
     ),
 }
 
@@ -231,13 +237,19 @@ class ModelDownloader:
         output_shapes = [o.shape for o in sess.get_outputs()]
 
         def feed(hw: int) -> dict[str, np.ndarray[tuple[int, ...], np.dtype[np.float32]]]:
-            """按模型声明的输入形状构造全零输入（动态维取 hw，静态维照抄）。"""
+            """按模型声明的输入形状构造全零输入（动态维取 hw，静态维照抄）。
+
+            4 维输入（NCHW）第 2 维动态时取 3：本应用全部视觉模型均为
+            RGB NCHW（如 CLIP 视觉塔 num_channels 声明为动态）。
+            """
             out: dict[str, np.ndarray[tuple[int, ...], np.dtype[np.float32]]] = {}
             for i in sess.get_inputs():
                 shape = []
                 for j, d in enumerate(i.shape):
                     if isinstance(d, int) and d > 0:
                         shape.append(d)
+                    elif len(i.shape) == 4 and j == 1:
+                        shape.append(3)
                     else:
                         shape.append(hw if j >= 1 else 1)
                 out[i.name] = np.zeros(shape, dtype=np.float32)
@@ -263,5 +275,16 @@ class ModelDownloader:
                     f"CLIP 嵌入维度需为 512，实际 {np.asarray(out).shape}")
         elif key == "watermark":
             out = sess.run(None, feed(640))[0]
-            if np.asarray(out)[0].ndim != 2 or np.asarray(out)[0].shape[-1] < 5:
-                raise ValueError(f"水印模型输出需为 (N,≥5)，实际 {output_shapes}")
+            arr = np.asarray(out)
+            # 行布局：自训模型 (1, N, ≥5) 已带 NMS；通道布局：标准
+            # ultralytics 导出 (1, C≤10, anchors≥100) 预 NMS（C>10 视为
+            # 通用多类模型，水印场景无意义，拒收）
+            rows_layout = arr.ndim == 3 and arr.shape[2] < 100 and arr.shape[2] >= 5
+            transposed = (
+                arr.ndim == 3 and arr.shape[2] >= 100
+                and 5 <= arr.shape[1] <= 10
+            )
+            if not (rows_layout or transposed):
+                raise ValueError(
+                    f"水印模型输出需为 (N,≥5) 或 (C,anchors)，实际 {output_shapes}"
+                )

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QRadioButton,
     QVBoxLayout,
@@ -167,6 +168,8 @@ class DedupPage(QWidget):
         self._config = config
         self._last_submit_key: tuple[object, ...] | None = None
         self._last_submit_ts = 0.0
+        self._busy = False
+        self._busy_task_ids: set[str] = set()   # 本页提交、尚未终态的任务
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -262,7 +265,18 @@ class DedupPage(QWidget):
         split.addLayout(right_box, 1)
         root.addLayout(split, 1)
 
-        # ---- 底：去重结果条 + 报告 ----
+        # ---- 底：任务进度条（busy 时显示）+ 去重结果条 + 报告 ----
+        busy_row = QHBoxLayout()
+        self._busy_label = QLabel()
+        self._busy_label.setObjectName("muted")
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        busy_row.addWidget(self._busy_label)
+        busy_row.addWidget(self.progress_bar, 1)
+        self._busy_widget = QWidget()
+        self._busy_widget.setLayout(busy_row)
+        self._busy_widget.hide()
+        root.addWidget(self._busy_widget)
         self.result_bar = DedupResultBar()
         self.result_bar.regenerate_requested.connect(self._regenerate)
         root.addWidget(self.result_bar)
@@ -315,8 +329,44 @@ class DedupPage(QWidget):
         self.btn_start.setText(
             self.tr("开始去重（{}）").format(n) if n else self.tr("开始去重"),
         )
-        self.btn_analyze.setEnabled(n > 0)
-        self.btn_start.setEnabled(n > 0)
+        enabled = n > 0 and not self._busy
+        self.btn_analyze.setEnabled(enabled)
+        self.btn_start.setEnabled(enabled)
+
+    # ---- 任务进行中反馈（busy 态 + 页面级进度条）----
+    def attach_scheduler(self, scheduler: Any) -> None:
+        """接入调度器进度/终态信号（app 装配时调用一次）。
+
+        接收者是本页 QObject → 跨线程信号自动排队回 GUI 线程，槽内
+        碰 UI 安全；只响应当前页 track 过的任务，不影响其他工作台。
+        """
+        scheduler.task_progress.connect(self._on_task_progress)
+        scheduler.task_done.connect(self._on_task_done)
+
+    def track_task(self, task_id: str) -> None:
+        """登记本页提交的任务：进入 busy 态并在页面内展示进度。"""
+        self._busy_task_ids.add(str(task_id))
+        self._set_busy(True)
+
+    def _set_busy(self, busy: bool) -> None:
+        self._busy = busy
+        self._refresh_btns()
+        self._busy_widget.setVisible(busy)
+        if not busy:
+            self.progress_bar.setValue(0)
+
+    def _on_task_progress(self, task_id: str, ratio: float) -> None:
+        if str(task_id) not in self._busy_task_ids:
+            return
+        self.progress_bar.setValue(int(max(0.0, min(1.0, ratio)) * 100))
+
+    def _on_task_done(self, task_id: str, ttype: str, state: str,
+                      _message: str, _summary: Any) -> None:
+        if str(task_id) not in self._busy_task_ids:
+            return
+        self._busy_task_ids.discard(str(task_id))
+        if not self._busy_task_ids:
+            self._set_busy(False)
 
     # ---- 数据 ----
     def set_assets(self, paths_or_rows: list[Any]) -> None:
@@ -530,6 +580,7 @@ class DedupPage(QWidget):
         self._refresh_btns()
         self.btn_apply_preset.setText(self.tr("套用预设"))
         self.btn_to_custom.setText(self.tr("预设→自定义微调"))
+        self._busy_label.setText(self.tr("任务进行中："))
         self.editor.retranslate()
         self.result_bar.retranslate()
         self.report_view.retranslate()

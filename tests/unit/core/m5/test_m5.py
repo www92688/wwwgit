@@ -149,11 +149,12 @@ def test_archive_download_with_url_keyword(m5) -> None:
     assert row.keyword == "MS4wLjABAAAAJODiOcX1x4rU6DWcG2uSM4CVEsgr"
 
 
-def test_mirror_path_cleaned_same_dir(m5) -> None:
+def test_mirror_path_cleaned_preprocess_folder(m5) -> None:
+    """预处理产物统一放原视频同目录的「预处理」文件夹（用户要求不混放）。"""
     src = m5["root"] / "清洗类" / "地毯" / "2026-01-01" / "a.mp4"
     out = m5["archive"].mirror_path_for_output(src, "_cleaned")
     assert out.name == "a_cleaned.mp4"
-    assert out.parent == src.parent
+    assert out.parent == src.parent / "预处理"
 
 
 def test_mirror_path_deduped_mirrors_levels(m5) -> None:

@@ -6,11 +6,16 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class EncoderSpec:
-    """统一 MP4 输出规格：libx264/crf20/medium + aac128k/44.1k + faststart。"""
+    """统一 MP4 输出规格：libx264/crf18/faster + aac128k/44.1k + faststart。
+
+    参数经 scripts/encoder_gate.py 质量门实测采纳：对源 SSIM 全面不低于
+    旧规格（medium/crf20，motion 素材 +0.0006），编码提速约 1.31x。
+    改动编码参数必须先跑该扫描，SSIM 对源不低于旧规格才允许变更。
+    """
 
     vcodec: str = "libx264"
-    crf: int = 20
-    preset: str = "medium"
+    crf: int = 18
+    preset: str = "faster"
     pix_fmt: str = "yuv420p"
     acodec: str | None = "aac"
     abitrate_k: int = 128

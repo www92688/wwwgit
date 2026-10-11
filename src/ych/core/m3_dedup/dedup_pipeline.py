@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -25,12 +26,29 @@ logger = logging.getLogger("ych.m3")
 _DEDUP_SUFFIX = "_deduped"
 _OUT_DIR_NAME = "已去重"
 
+# 进度分段：转码占整条任务的 [0, 0.7]，前后对比占 (0.7, 1.0]。
+# 对比阶段（抽帧+特征）往往比转码更久，必须持续推进进度，
+# 否则任务看起来"卡死在 100%"（点击后无反馈的主因之一）
+_TRANSCODE_SPAN = 0.7
+_COMPARE_SPAN = 0.29
+_COMPARE_WORKERS = 4   # 对比目标特征提取线程数（ffmpeg/cv2/ONNX 均释放 GIL）
+
 
 @dataclass
 class DedupItemResult:
     out_path: Path
     before_pct: float | None = None      # 处理前综合重复度（%）
     after_pct: float | None = None       # 处理后对同批 targets 重算（%）
+
+
+@dataclass
+class TranscodeOutcome:
+    """单条去重的转码阶段产物（对比阶段消费）。"""
+
+    src: Path
+    out: Path
+    probe: MediaInfo
+    speed_factor: float
 
 
 class _WorkDirsLike(Protocol):
@@ -82,6 +100,27 @@ class DedupPipeline:
         token: CancellationToken | None = None,
     ) -> DedupItemResult:
         t0 = time.monotonic()
+        tc = self.transcode_item(src, technique_params, on_progress, token)
+        before_pct, after_pct = self.compare_item(
+            src, tc.out, on_progress)
+        if on_progress is not None:
+            on_progress(1.0)
+        logger.info("去重完成 %s：before=%s after=%s（%.1fs）",
+                    tc.out.name, before_pct, after_pct,
+                    time.monotonic() - t0)
+        return DedupItemResult(out_path=tc.out,
+                               before_pct=before_pct,
+                               after_pct=after_pct)
+
+    # ---- 阶段一：转码（滤镜链 → 输出文件）----
+    def transcode_item(
+        self,
+        src: Path,
+        technique_params: list[dict[str, object]],
+        on_progress: ProgressFn | None,
+        token: CancellationToken | None = None,
+    ) -> TranscodeOutcome:
+        t0 = time.monotonic()
         probe = self._prober.probe(src)
         out = self.output_path_for(src)
         if out.exists():
@@ -103,13 +142,17 @@ class DedupPipeline:
         if elapsed > 3.0 * dur_eff:
             logger.warning("耗时守卫：去重 %.1fs > 3×时长 %.1fs（%s）",
                            elapsed, 3.0 * dur_eff, src.name)
+        return TranscodeOutcome(src=Path(src), out=out, probe=probe,
+                                speed_factor=ctx.speed_factor)
 
-        before_pct, after_pct = self._compare_scores(src, out)
-        logger.info("去重完成 %s：before=%s after=%s（%.1fs）",
-                    out.name, before_pct, after_pct, elapsed)
-        return DedupItemResult(out_path=out,
-                               before_pct=before_pct,
-                               after_pct=after_pct)
+    # ---- 阶段二：前后重复度对比（不触碰 ffmpeg 转码，可与下一条转码并行）----
+    def compare_item(
+        self,
+        src: Path,
+        out: Path,
+        on_progress: ProgressFn | None = None,
+    ) -> tuple[float | None, float | None]:
+        return self._compare_scores(src, out, on_progress)
 
     # ---- 手法链 ----
     def _build_context(
@@ -161,24 +204,37 @@ class DedupPipeline:
             if on_progress is None:
                 return
             ts = FFmpegRunner.parse_progress_line(line)
-            if ts is not None and on_progress is not None:
-                on_progress(min(ts / duration_eff, 1.0))
+            if ts is not None:
+                # 转码只占整条任务的前 _TRANSCODE_SPAN 段，其后是对比阶段
+                on_progress(_TRANSCODE_SPAN * min(ts / duration_eff, 1.0))
 
         code = self._runner.run(args, on_line=on_line, token=token)
         if code != 0:
             raise AppError(ERR_MED_TRANSCODE_FAILED, f"去重转码失败（exit={code}）")
         if on_progress is not None:
-            on_progress(1.0)
+            on_progress(_TRANSCODE_SPAN)
 
     # ---- 前后重复度对比（14.6 第 4 步）----
-    def _compare_scores(self, src: Path, out: Path) -> tuple[float | None, float | None]:
+    def _compare_scores(
+        self,
+        src: Path,
+        out: Path,
+        on_progress: ProgressFn | None = None,
+    ) -> tuple[float | None, float | None]:
         """处理前后与同一批对比对象的最大相似度。
 
         对象优先取 ReportDao.latest_for(src) 的可用 targets（手动参考/
         在线候选）；没有可用 targets 时回退本地同关键词素材池——保证
         "重复度 x% → y%" 在离线环境也是真实计算而非恒空。
+
+        特征提取是对比阶段的主要耗时（输出 + 源 + ≤8 个目标各一遍），
+        目标侧走线程池并行（ffmpeg/cv2/ONNX 都释放 GIL），并按完成的
+        提取数推进 (0.7, 1.0) 段进度——避免"卡在 70% 无响应"观感。
         """
-        if self._extract is None or self._calc is None:
+        if self._calc is None:
+            return (None, None)
+        extract_fn = self._extract
+        if extract_fn is None:
             return (None, None)
         report = None
         try:
@@ -206,28 +262,59 @@ class DedupPipeline:
         if not target_paths:
             return (None, None)
 
-        try:
-            feat_after = self._extract(Path(out))
-        except Exception as exc:
-            logger.warning("去重后特征提取失败：%s", exc)
-            return (before_pct, None)
+        # 全部特征提取任务：输出必算；报告路径不需要源特征，本地池路径需要
+        jobs: dict[str, Path] = {"__out__": Path(out)}
         if before_pct is None:
-            # 本地池路径：before 需要源视频对同一批对象重算
+            jobs["__src__"] = Path(src)
+        for i, p in enumerate(target_paths):
+            jobs[f"t{i}"] = p
+
+        def step() -> None:
+            if on_progress is None:
+                return
+            done[0] += 1
+            # 收尾 1.0 由 execute_item 统一上报；这里推进 (0.7, 0.99]
+            on_progress(_TRANSCODE_SPAN
+                        + _COMPARE_SPAN * min(done[0] / len(jobs), 1.0))
+
+        done = [0]
+        feats: dict[str, FeatureSet | None] = {}
+
+        def extract(key: str, path: Path) -> None:
             try:
-                feat_src = self._extract(src)
+                feats[key] = extract_fn(path)
             except Exception as exc:
-                logger.warning("去重前特征提取失败：%s", exc)
-                return (None, None)
+                logger.debug("特征提取失败 %s：%s", path.name, exc)
+                feats[key] = None
+            step()
+
+        # 输出特征先串行算（失败则整段对比作废），其余并行
+        extract("__out__", jobs.pop("__out__"))
+        if len(jobs) > 1:
+            with ThreadPoolExecutor(
+                max_workers=min(_COMPARE_WORKERS, len(jobs)),
+                thread_name_prefix="ych-dedup-cmp",
+            ) as pool:
+                list(pool.map(lambda kv: extract(kv[0], kv[1]), jobs.items()))
         else:
-            feat_src = None
+            for key, path in jobs.items():
+                extract(key, path)
+
+        feat_after = feats.get("__out__")
+        if feat_after is None:
+            logger.warning("去重后特征提取失败")
+            return (before_pct, None)
+        feat_src = feats.get("__src__")
+        if before_pct is None and feat_src is None:
+            logger.warning("去重前特征提取失败")
+            return (None, None)
+
         after_overall = 0.0
         before_overall = 0.0
         compared = 0
-        for local in target_paths:
-            try:
-                feat_t = self._extract(local)
-            except Exception as exc:
-                logger.debug("target 特征失效 %s：%s", local.name, exc)
+        for i, _local in enumerate(target_paths):
+            feat_t = feats.get(f"t{i}")
+            if feat_t is None:
                 continue
             after_overall = max(
                 after_overall,

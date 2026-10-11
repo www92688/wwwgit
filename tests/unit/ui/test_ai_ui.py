@@ -23,8 +23,12 @@ def _mute_message_boxes(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class FakeAiGateway:
-    def __init__(self) -> None:
+    def __init__(self, default_service_id: str = "") -> None:
         self.calls: list[tuple[str, str, str | None]] = []
+        self._default_service_id = default_service_id
+
+    def default_service_id(self) -> str:
+        return self._default_service_id
 
     def list_models(
         self, service_id: str, base_url: str, api_key: str | None = None,
@@ -147,6 +151,24 @@ def test_ai_add_via_preset_and_save(qtbot) -> None:
         for i in range(page.service_list.count())
     ]
     assert any("DeepSeek" in t for t in texts)
+
+
+def test_sole_service_shows_default_star_without_explicit_default(qtbot) -> None:
+    """唯一服务未显式设默认时列表也标 ★（与网关"自动默认"判定一致）。"""
+    from ych.ui.u5_settings.settings_page import SettingsPage
+
+    config = ConfigService()
+    config.set(
+        "ai_services",
+        {"svc1": {"name": "唯一服务", "base_url": "https://x", "model": "m-1"}},
+    )
+    page = SettingsPage(config, ai_gateway=FakeAiGateway("svc1"))
+    qtbot.addWidget(page)
+    texts = [
+        page.service_list.item(i).text()
+        for i in range(page.service_list.count())
+    ]
+    assert any(t.startswith("★默认") and "唯一服务" in t for t in texts)
 
 
 def test_ai_edit_default_and_delete(qtbot, memory_keyring) -> None:
@@ -339,16 +361,19 @@ def test_search_passes_selected_platform_ids(qtbot) -> None:
         def __init__(self) -> None:
             self.calls: list[dict[str, object]] = []
 
-        def search_multi(self, keywords, filters, per_platform_limit=30,
+        def search_multi(self, keywords, filters, limit=30,
                          token=None, platform_ids=None) -> None:
             self.calls.append({"keywords": keywords,
-                               "platform_ids": platform_ids})
+                               "platform_ids": platform_ids,
+                               "limit": limit})
 
     coord = RecCoordinator()
     page = CapturePage(coordinator=coord)
     qtbot.addWidget(page)
     page.keyword_edit.setText("地毯清洗")
     page._on_search()
+    # 搜索预算取自「单次下载数量上限」spinbox，而非固定值
+    assert coord.calls[0]["limit"] == page.limit_spin.value()
     assert coord.calls[0]["platform_ids"] is not None
     ids = coord.calls[0]["platform_ids"]
     assert "pexels" in ids and "pixabay" in ids          # type: ignore[operator]

@@ -174,12 +174,16 @@ class ResultList(QWidget):
     def _on_thumb_fetched(self, key: str, image: object) -> None:
         """后台缩略图到达：按缓存键回填对应卡片图标。"""
         assert isinstance(image, QImage)
-        icon = QIcon(
+        if image.isNull():
+            return
+        # 走 QPixmap.fromImage 显式转换：本机 PySide6 对 QIcon(QImage)
+        # 直接重载解析失败（ValueError），缩略图静默丢失
+        icon = QIcon(QPixmap.fromImage(
             image.scaled(
                 _THUMB_SIZE, Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             ),
-        )
+        ))
         for i in range(self.list.count()):
             item = self.list.item(i)
             if item.data(_THUMB_ROLE) == key:

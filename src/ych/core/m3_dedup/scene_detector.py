@@ -11,17 +11,20 @@ _LOCAL_RADIUS = 3          # 邻域极大值半径
 _K_SIGMA = 2.5
 
 
+def frame_hist(img: npt.NDArray[np.uint8]) -> npt.NDArray[np.float64]:
+    """单帧 HSV 三通道各 32-bin 直方图拼接（相邻对差分的公共子步）。"""
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    chans = [
+        cv2.calcHist([hsv], [c], None, [_BINS], rng)
+        for c, rng in ((0, (0, 180)), (1, (0, 256)), (2, (0, 256)))
+    ]
+    return np.concatenate(chans).ravel().astype(np.float64)
+
+
 def frame_hist_diff(img_a: npt.NDArray[np.uint8],
                     img_b: npt.NDArray[np.uint8]) -> float:
     """HSV 三通道各 32-bin 直方图 L1 差 / 像素数（纯函数，可独立测试）。"""
-    hist = []
-    for img in (img_a, img_b):
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        chans = [
-            cv2.calcHist([hsv], [c], None, [_BINS], rng)
-            for c, rng in ((0, (0, 180)), (1, (0, 256)), (2, (0, 256)))
-        ]
-        hist.append(np.concatenate(chans).ravel())
+    hist = [frame_hist(img) for img in (img_a, img_b)]
     n_pixels = float(img_a.shape[0] * img_a.shape[1])
     return float(np.abs(hist[0] - hist[1]).sum() / max(n_pixels, 1.0))
 
@@ -39,10 +42,12 @@ class SceneDetector:
         n = len(frames_img)
         if n < 2:
             return []
-        diffs = np.array([
-            frame_hist_diff(frames_img[i - 1], frames_img[i])
-            for i in range(1, n)
-        ], dtype=np.float64)                       # diffs[i] 对应 ts[i+1]
+        # 每帧直方图只算一次（逐对重算会把同一帧算两遍），差分向量化
+        hists = np.asarray([frame_hist(img) for img in frames_img])
+        n_pixels = float(frames_img[0].shape[0] * frames_img[0].shape[1])
+        diffs = np.abs(hists[1:] - hists[:-1]).sum(axis=1) / max(
+            n_pixels, 1.0,
+        )                                       # diffs[i] 对应 ts[i+1]
         threshold = float(diffs.mean() + _K_SIGMA * diffs.std())
 
         boundaries: list[float] = []

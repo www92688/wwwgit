@@ -3,7 +3,8 @@
 # 产物目录：build/e2e_real_media/（含生成素材与全部输出，可人工复核）
 #
 # 覆盖面：
-#   A. 预处理·框选去水印+去字幕（帧级路径，无模型 → TELEA 经典降级）
+#   A. 预处理·框选去水印+去字幕（帧级路径；有 LaMa 模型走模型修复，
+#      缺模型自动降级 TELEA——两条路径本用例都须通过）
 #   B. 预处理·框选裁剪 + 9:16 比例（纯滤镜路径）
 #   C. 去重全手法链（镜像/裁切缩放/LUT调色/变速/黑边）
 #   音画同步：素材内置「白闪+同刻哔声」对表，输出端重测两路事件时刻求漂移。
@@ -12,10 +13,12 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
 
+from ych.common.cancellation import CancellationToken
 from ych.common.schemas import BBox, ManualRegions
 from ych.core.m2_preprocess.filter_only_processor import FilterOnlyProcessor
 from ych.core.m2_preprocess.frame_level_processor import FrameLevelProcessor
@@ -82,7 +85,7 @@ def build_source(dest: Path, ffmpeg: Path) -> None:
         "-f", "lavfi", "-i", f"aevalsrc='{beep}':s=44100:d=12",
         "-vf", ",".join(vf),
         "-map", "0:v", "-map", "1:a", "-ac", "2",
-        "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+        "-c:v", "libx264", "-g", "30", "-crf", "18", "-preset", "medium",
         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
         str(dest),
     ], check=True, capture_output=True)
@@ -165,7 +168,7 @@ def grab(path: Path, ts: float, extractor: FrameExtractor) -> np.ndarray:
 # ---------------------------------------------------------------- 装配
 def build_stack(tmp: Path):
     runner = FFmpegRunner()
-    ffmpeg, _ffprobe = runner.locate_binaries()
+    ffmpeg, ffprobe = runner.locate_binaries()
     prober = ProbeService(runner)
     extractor = FrameExtractor(runner, prober)
     cfg = ConfigService()
@@ -177,21 +180,22 @@ def build_stack(tmp: Path):
     daos = make_daos(Database(tmp / "app.db"))
     archive = ArchiveService(wd_manager, cfg, daos.assets, daos.categories)
     provider = LocalProvider(ModelRegistry())   # 无模型 → 真实降级路径
+    frames = FrameLevelProcessor(runner, extractor, provider, cfg, prober=prober)
     pipeline = PreprocessPipeline(
         prober, FilterOnlyProcessor(runner),
         SubtitleHandler(runner, extractor, provider),
-        FrameLevelProcessor(runner, extractor, provider, cfg), archive,
+        frames, archive,
     )
     dedup = DedupPipeline(
         runner=runner, prober=prober, archive=archive, workdirs=wd_manager,
         registry=make_default_registry(),
     )
-    return ffmpeg, prober, extractor, pipeline, dedup
+    return ffmpeg, ffprobe, prober, extractor, pipeline, frames, dedup
 
 
 # ---------------------------------------------------------------- 用例
 def case_a_frame_path(src: Path, prober, extractor, pipeline, ffmpeg: Path) -> Path:
-    print("\n[A] 预处理·框选去水印 + 框选去字幕（帧级路径，TELEA 降级）")
+    print("\n[A] 预处理·框选去水印 + 框选去字幕（帧级路径，LaMa/TELEA 自适应）")
     ops = PreprocessOps(
         remove_watermark_mode="manual",
         watermark_regions=ManualRegions(rects=[
@@ -318,13 +322,88 @@ def case_c_dedup(src: Path, prober, extractor, dedup: DedupPipeline, ffmpeg: Pat
     return out
 
 
+# ---------------------------------------------------------------- 用例 D
+def frame_pts_list(path: Path, ffprobe: Path) -> list[float]:
+    """视频流逐帧 pts（秒，升序）——不卡顿门禁的时间轴原始数据。"""
+    proc = subprocess.run(
+        [str(ffprobe), "-v", "quiet", "-select_streams", "v:0",
+         "-show_entries", "frame=pts_time", "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True, check=True,
+    )
+    return [float(x) for x in proc.stdout.replace(",", " ").split()
+            if x.replace(".", "").isdigit()]
+
+
+def case_d_segmented(src: Path, prober, extractor, frames, ffmpeg: Path,
+                     ffprobe: Path) -> Path:
+    print("[D] 预处理·分段直通（修复段逐帧重编码 + 其余段比特级拷贝）")
+    ops = PreprocessOps(
+        remove_watermark_mode="manual",
+        watermark_regions=ManualRegions(
+            rects=[BBox(0.74, 0.045, 0.22, 0.11)],   # 覆盖黄块，仅 2~5s
+            time_start_s=2.0, time_end_s=5.0,
+        ),
+    )
+    out = src.with_name(src.stem + "_d_cleaned.mp4")
+    stats = frames.process(src, prober.probe(src), ops, out, None,
+                           CancellationToken())
+    check(int(stats.extra.get("segments", 0)) >= 2
+          and float(stats.extra.get("copied_s", 0)) > 5,
+          "分段直通已启用（未走整片回退）",
+          f"段数 {stats.extra.get('segments')}，拷贝 {stats.extra.get('copied_s')}s")
+
+    info = prober.probe(out)
+    src_info = prober.probe(src)
+    check(abs(info.duration_s - src_info.duration_s) < 0.1,
+          "时长保持", f"{info.duration_s:.2f}s vs {src_info.duration_s:.2f}s")
+    check(info.has_audio and info.acodec == "aac", "原声 AAC 比特级直通")
+
+    # 逐帧门禁：帧数精确相等（零丢帧/零重复）
+    pts_src = frame_pts_list(src, ffprobe)
+    pts_out = frame_pts_list(out, ffprobe)
+    check(len(pts_out) == len(pts_src),
+          "逐帧处理：帧数精确相等", f"{len(pts_out)} vs {len(pts_src)}")
+    # 不卡顿门禁：时间戳单调且间隔恒定 ≈ 1/FPS（跨拼接边界无跳变）
+    deltas = [b - a for a, b in pairwise(pts_out)]
+    ideal = 1.0 / FPS
+    monotonic = all(d > 0 for d in deltas)
+    uniform = all(abs(d - ideal) <= 1e-3 for d in deltas)
+    check(monotonic and uniform, "不卡顿：帧间隔跨段恒定（时间轴无跳变）",
+          f"间隔范围 [{min(deltas)*1000:.1f}, {max(deltas)*1000:.1f}]ms"
+          f"，理想 {ideal*1000:.1f}ms")
+
+    # 拷贝段（8s 处，修复窗外）：与源逐字节一致
+    f_src = grab(src, 8.0, extractor)
+    f_out = grab(out, 8.0, extractor)
+    check(np.array_equal(f_src, f_out),
+          "拷贝段比特级一致（零重压缩）", "ts=8.0s 同帧逐字节相等")
+
+    # 修复段（3s 处）：黄块被清除
+    h, w = f_src.shape[:2]
+
+    def frac_yellow(img):
+        r = img[int(0.045*h):int(0.155*h), int(0.74*w):int(0.96*w)].astype(int)
+        return float(((r[..., 2] > 180) & (r[..., 1] > 180)
+                      & (r[..., 0] < 100)).mean())
+
+    f_rep = grab(out, 3.0, extractor)
+    check(frac_yellow(grab(src, 3.0, extractor)) > 0.8
+          and frac_yellow(f_rep) < 0.2,
+          "修复段水印被清除", f"黄块占比 {frac_yellow(f_rep):.2f}")
+
+    drift, n = sync_drift(out, ffmpeg, info.duration_s)
+    check(drift <= SYNC_TOL_S, "音画同步（分段拼接后）",
+          f"最大漂移 {drift*1000:.0f}ms / {n} 对")
+    return out
+
+
 def main() -> int:
     import shutil
 
     if OUT.exists():
         shutil.rmtree(OUT)      # 幂等重跑：清掉上次的 _cleaned/已去重 产物
     OUT.mkdir(parents=True, exist_ok=True)
-    ffmpeg, prober, extractor, pipeline, dedup = build_stack(OUT)
+    ffmpeg, ffprobe, prober, extractor, pipeline, frames, dedup = build_stack(OUT)
     # 源放工作目录内（去重镜像输出要求素材在工作目录下，同真实用法）
     src_dir = OUT / "workdir" / "素材"
     src_dir.mkdir(parents=True, exist_ok=True)
@@ -338,6 +417,7 @@ def main() -> int:
     src_b.write_bytes(src.read_bytes())
     case_b_filter_path(src_b, prober, pipeline, ffmpeg)
     case_c_dedup(src, prober, extractor, dedup, ffmpeg)
+    case_d_segmented(src, prober, extractor, frames, ffmpeg, ffprobe)
 
     failed = [c for c in _checks if not c[0]]
     print(f"\n===== 端到端验证：{len(_checks) - len(failed)}/{len(_checks)} 通过 =====")

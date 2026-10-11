@@ -10,7 +10,7 @@ from ych.common.cancellation import SkippedSignal
 from ych.common.errors import ERR_MED_FORMAT_UNSUPPORTED, AppError
 from ych.common.schemas import TaskPayload
 from ych.context import AppContext
-from ych.core.m3_dedup.dedup_pipeline import DedupItemResult
+from ych.core.m3_dedup.dedup_pipeline import TranscodeOutcome
 from ych.core.m4_scheduler.task_scheduler import ManagedTask, TaskScheduler
 from ych.services.s3_db.daos import make_daos
 from ych.services.s3_db.database import Database
@@ -18,7 +18,7 @@ from ych.services.s5_base.config_service import ConfigService
 
 
 class FakePipeline:
-    """execute_item 可编程：ok / SkippedSignal / 异常。"""
+    """两阶段可编程：转码 ok / SkippedSignal / 异常；对比返回固定分数。"""
 
     def __init__(self, behavior: str = "ok") -> None:
         self.behavior = behavior
@@ -27,18 +27,21 @@ class FakePipeline:
     def output_path_for(self, src: Path) -> Path:
         return Path("D:/wd/已去重") / (src.stem + "_deduped.mp4")
 
-    def execute_item(self, src: Path, params, on_progress, token
-                     ) -> DedupItemResult:
+    def transcode_item(self, src: Path, params, on_progress, token
+                       ) -> TranscodeOutcome:
         if on_progress is not None:
             on_progress(0.5)
-            on_progress(1.0)
-            self.progress_calls = [0.5, 1.0]
+            self.progress_calls.append(0.5)
         if self.behavior == "skip":
             raise SkippedSignal(f"{src.stem}_deduped.mp4 已存在，跳过重复去重")
         if self.behavior == "fail":
             raise AppError(ERR_MED_FORMAT_UNSUPPORTED, "格式不支持")
-        return DedupItemResult(out_path=self.output_path_for(src),
-                               before_pct=42.0, after_pct=5.0)
+        return TranscodeOutcome(src=src, out=self.output_path_for(src),
+                                probe=None, speed_factor=1.0)   # type: ignore[arg-type]
+
+    def compare_item(self, src: Path, out: Path, on_progress=None
+                     ) -> tuple[float | None, float | None]:
+        return (42.0, 5.0)
 
 
 @pytest.fixture
@@ -115,3 +118,63 @@ def test_dedup_failure_records_message(env) -> None:
     assert result.summary["failed"] == 1
     assert result.summary["failed_msgs"]
     assert "a.mp4" in result.summary["failed_msgs"][0]
+
+
+def test_dedup_cancel_mid_batch_keeps_finished_items(env) -> None:
+    """批次中途取消：上抛 TaskCanceled，已完成条目保留，剩余不计失败。"""
+    from ych.common.cancellation import CancellationToken, TaskCanceled
+
+    class CancelingPipeline(FakePipeline):
+        """第 2 条转码时模拟用户取消。"""
+
+        def transcode_item(self, src: Path, params, on_progress, token
+                           ) -> TranscodeOutcome:
+            if src.stem == "b" and token is not None:
+                token.cancel()
+                raise TaskCanceled("转码已被取消")
+            return super().transcode_item(src, params, on_progress, token)
+
+    env["ctx"]._cache["pipeline_m3"] = CancelingPipeline("ok")
+    token = CancellationToken()
+    task = ManagedTask(
+        task_id="t-cancel",
+        payload=TaskPayload(type="dedup", data={"items": [
+            {"src": "D:/wd/a.mp4", "technique_params": []},
+            {"src": "D:/wd/b.mp4", "technique_params": []},
+            {"src": "D:/wd/c.mp4", "technique_params": []},
+        ]}),
+        token=token,
+    )
+    with pytest.raises(TaskCanceled):
+        env["ctx"]._handle_dedup(task)
+
+
+def test_dedup_compare_failure_counted_not_fatal(env) -> None:
+    """对比阶段异常：计失败且含文件名，不拖垮批次其他条目。"""
+    from ych.core.m3_dedup.dedup_pipeline import TranscodeOutcome
+
+    class CompareFailPipeline(FakePipeline):
+        def compare_item(self, src: Path, out: Path, on_progress=None
+                         ) -> tuple[float | None, float | None]:
+            if src.stem == "a":
+                raise RuntimeError("特征提取崩溃")
+            return (10.0, 5.0)
+
+        def transcode_item(self, src: Path, params, on_progress, token
+                           ) -> TranscodeOutcome:
+            return TranscodeOutcome(src=src, out=self.output_path_for(src),
+                                    probe=None, speed_factor=1.0)   # type: ignore[arg-type]
+
+    env["ctx"]._cache["pipeline_m3"] = CompareFailPipeline("ok")
+    from ych.core.m4_scheduler.fail_record_manager import FailRecordManager
+
+    env["ctx"]._cache["fail_manager"] = FailRecordManager(env["daos"].fails)
+    task = _make_task([
+        {"src": "D:/wd/a.mp4", "technique_params": []},
+        {"src": "D:/wd/b.mp4", "technique_params": []},
+    ])
+    result = env["ctx"]._handle_dedup(task)
+    assert result.summary["failed"] == 1
+    assert "a.mp4" in result.summary["failed_msgs"][0]
+    assert len(result.summary["outputs"]) == 1
+    assert result.summary["after_pct"] == 5.0

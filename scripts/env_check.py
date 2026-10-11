@@ -22,7 +22,7 @@ from pathlib import Path
 
 # 模型文件清单：name -> 说明
 REQUIRED_MODELS: dict[str, str] = {
-    "watermark_yolov8n_640.onnx": "水印检测",
+    "watermark_det_640.onnx": "水印检测",
     "subtitle_det_ppocrv4_mobile.onnx": "字幕检测",
     "lama_fp32_512.onnx": "图像修复",
     "clip_vitb32_image.onnx": "构图特征",

@@ -16,11 +16,24 @@ logger = logging.getLogger("ych.s2")
 ModelName = Literal["watermark", "subtitle", "inpaint", "clip"]
 
 _MODEL_FILES: dict[str, str] = {
-    "watermark": "watermark_yolov8n_640.onnx",
+    "watermark": "watermark_det_640.onnx",
     "subtitle": "subtitle_det_ppocrv4_mobile.onnx",
     "inpaint": "lama_fp32_512.onnx",
     "clip": "clip_vitb32_image.onnx",
 }
+
+# DML 白名单（2026-10 RTX 4060 实测，scripts 临时环境四模型基准）：
+#   subtitle 41.7x / clip 30.6x；watermark DML 反而慢 4 倍、lama FFC 算子
+#   DML 直接报错——故按模型分流，白名单外恒走 CPU。
+# 会话构建失败或运行期 DML 报错由调用方既有降级路径兜底（不阻断处理）。
+_DML_MODELS = frozenset({"subtitle", "clip"})
+
+
+def _providers_for(name: str) -> list[str]:
+    """按模型选择执行提供者：白名单模型优先 DML（可用时），其余恒 CPU。"""
+    if name in _DML_MODELS and "DmlExecutionProvider" in ort.get_available_providers():
+        return ["DmlExecutionProvider", "CPUExecutionProvider"]
+    return ["CPUExecutionProvider"]
 
 
 def models_dir() -> Path:
@@ -29,7 +42,7 @@ def models_dir() -> Path:
 
 
 def intra_op_threads() -> int:
-    """物理核-2，下限 2（详设 9.3）。"""
+    """物理核-2，下限 2（详设 9.3）。DML 会话忽略该配置，无害。"""
     cores = os.cpu_count() or 4
     return max(2, cores - 2)
 
@@ -59,19 +72,38 @@ class ModelRegistry:
                 raise AppError(ERR_AI_MODEL_MISSING, f"模型文件缺失：{path.name}")
             options = ort.SessionOptions()
             options.intra_op_num_threads = intra_op_threads()
+            providers = _providers_for(name)
             try:
                 sess = ort.InferenceSession(
                     str(path), sess_options=options,
-                    providers=["CPUExecutionProvider"],
+                    providers=providers,
                 )
             except Exception as exc:
-                raise AppError(
-                    ERR_AI_MODEL_LOAD_FAILED,
-                    f"模型加载失败：{path.name}",
-                    cause=exc,
-                ) from exc
+                # DML 初始化失败（驱动/算子不支持）→ 退回纯 CPU 重试一次
+                if providers != ["CPUExecutionProvider"]:
+                    logger.warning(
+                        "模型 %s GPU 初始化失败，退回 CPU：%s", path.name, exc,
+                    )
+                    try:
+                        sess = ort.InferenceSession(
+                            str(path), sess_options=options,
+                            providers=["CPUExecutionProvider"],
+                        )
+                    except Exception as exc2:
+                        raise AppError(
+                            ERR_AI_MODEL_LOAD_FAILED,
+                            f"模型加载失败：{path.name}",
+                            cause=exc2,
+                        ) from exc2
+                else:
+                    raise AppError(
+                        ERR_AI_MODEL_LOAD_FAILED,
+                        f"模型加载失败：{path.name}",
+                        cause=exc,
+                    ) from exc
             self._sessions[name] = sess
-            logger.info("model loaded: %s", path.name)
+            logger.info("model loaded: %s（%s）", path.name,
+                        "GPU" if providers != ["CPUExecutionProvider"] else "CPU")
             return sess
 
     def clear(self) -> None:

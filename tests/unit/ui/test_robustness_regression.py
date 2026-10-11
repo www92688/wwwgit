@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QTreeWidget
 
 from ych.services.s3_db.daos import AssetRow
@@ -60,9 +60,79 @@ def test_preprocess_double_click_submits_once(
     page.asset_tree.select_all(True)
 
     page._on_start()
-    page._on_start()          # 3 秒窗口内的重复点击 → 拦截
+    page._on_start()          # 上一批仍在途（终态前）→ "进行中"守卫拦截
     assert len(sched.payloads) == 1
-    assert any("重复点击" in t for t in spy.texts())
+    assert any("重复点击" in t or "进行中" in t for t in spy.texts())
+
+
+def test_preprocess_progress_bar_and_running_guard(
+    qtbot: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """提交后页面进度条可见并随 task_progress 更新；终态后归位可再提交。"""
+    spy = _ToastSpy(monkeypatch)
+
+    class _SignalScheduler(QObject):
+        task_state = Signal(str, str, str)
+        task_progress = Signal(str, float)
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.payloads: list[Any] = []
+
+        def submit(self, payload: Any) -> str:
+            self.payloads.append(payload)
+            return f"task-{len(self.payloads)}"
+
+    sched = _SignalScheduler()
+    page = PreprocessPage(scheduler=sched)
+    qtbot.addWidget(page)
+    page.set_assets([_asset_row("C:/wd/a.mp4")])
+    page.asset_tree.select_all(True)
+
+    page._on_start()
+    assert page.progress_bar.isHidden() is False
+    sched.task_progress.emit("task-1", 0.5)
+    assert page.progress_bar.value() == 50
+
+    page._on_start()          # 批次进行中再点 → 拦截且不重复入队
+    assert len(sched.payloads) == 1
+    assert any("进行中" in t for t in spy.texts())
+
+    sched.task_state.emit("task-1", "success", "")
+    assert page.progress_bar.isHidden() is True
+
+    page._last_submit_ts = 0.0   # 绕过 3 秒同载荷窗口，验证终态后可再提交
+    page._on_start()
+    assert len(sched.payloads) == 2
+    # 非本页任务的状态/进度不驱动进度条
+    sched.task_progress.emit("other-task", 0.9)
+    assert page.progress_bar.value() == 0
+
+
+def test_preprocess_view_output_button(
+    qtbot: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Any,
+) -> None:
+    """终态回填产物目录 → 「查看产物」点亮；点击打开该目录。"""
+    spy = _ToastSpy(monkeypatch)
+    page = PreprocessPage(scheduler=None)
+    qtbot.addWidget(page)
+    assert page.btn_view_output.isEnabled() is False
+
+    import ych.ui.u6_common.context_actions as ca
+
+    opened: list[str] = []
+    monkeypatch.setattr(
+        ca, "reveal_in_file_manager", lambda p: opened.append(p) or True,
+    )
+    page.set_last_output_dir(str(tmp_path))
+    assert page.btn_view_output.isEnabled() is True
+    page.btn_view_output.click()
+    assert opened == [str(tmp_path)]
+
+    # 目录不存在 → 点击给错误提示而不是静默/崩溃
+    page.set_last_output_dir(str(tmp_path / "nope"))
+    page.btn_view_output.click()
+    assert any("不存在" in t for t in spy.texts())
 
 
 def test_preprocess_scheduler_missing_gives_feedback(
@@ -285,3 +355,56 @@ def test_resultlist_note_row_double_click_toasts(
     note.setData(Qt.ItemDataRole.UserRole, "note-row")
     page._open_source_page(note)
     assert any("不可打开" in t for t in spy.texts())
+
+
+def test_llm_worker_survives_owner_gc(qapp: Any) -> None:
+    """持有方销毁/GC 后运行中的 LlmWorker 不被回收（旧实现此处直接 abort：
+    QThread: Destroyed while thread is still running）。"""
+    import gc
+    import time as _time
+
+    from ych.ui.u6_common.llm_worker import LlmWorker, _ACTIVE
+
+    done: list[object] = []
+
+    def _run_and_drop() -> None:
+        w = LlmWorker(lambda: "ok")
+        w.done.connect(done.append)
+        w.start()
+        return None   # 局部引用即弃：模拟页面销毁
+
+    _run_and_drop()
+    gc.collect()      # 旧实现在此析构运行中的 QThread → 进程 abort
+    assert _ACTIVE, "运行中的 worker 应被全局注册表持有"
+    deadline = _time.monotonic() + 5.0
+    while not done and _time.monotonic() < deadline:
+        qapp.processEvents()
+        _time.sleep(0.01)
+    assert done == ["ok"]
+    # 收尾等线程自然结束（deleteLater/注销经事件循环生效）
+    deadline = _time.monotonic() + 5.0
+    while _ACTIVE and _time.monotonic() < deadline:
+        qapp.processEvents()
+        _time.sleep(0.01)
+    assert not _ACTIVE
+
+
+def test_thumb_fetched_sets_icon(qapp: Any, qtbot: Any) -> None:
+    """缩略图到达回填图标（QIcon(QImage) 重载缺陷曾致其静默丢失）。"""
+    from PySide6.QtGui import QColor, QImage
+
+    from ych.common.schemas import VideoMeta
+    from ych.ui.u1_capture.result_list import ResultList, _THUMB_ROLE
+    from ych.ui.u6_common.thumb_fetcher import thumb_key
+
+    page = ResultList()
+    qtbot.addWidget(page)
+    meta = VideoMeta(plugin_id="pexels", video_key="v1", title="卡片",
+                     thumbnail_url="https://x/t.jpg")
+    page.set_results([meta], "森林")
+    img = QImage(64, 48, QImage.Format.Format_RGB32)
+    img.fill(QColor(200, 30, 30))
+
+    page._on_thumb_fetched(thumb_key(meta.thumbnail_url), img)
+    item = page.list.item(0)
+    assert item is not None and not item.icon().isNull()

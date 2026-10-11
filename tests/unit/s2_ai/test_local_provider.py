@@ -70,3 +70,75 @@ def test_inpaint_large_region_telea_fallback_without_model(
     out = provider_no_models.inpaint(frame, mask)   # LaMa 缺失 → TELEA
     assert out.shape == frame.shape
 
+
+
+# ---------- 推理熔断：连续失败后本会话直接走兜底 ----------
+class _FakeInput:
+    name = "in"
+
+
+class _FakeSession:
+    def __init__(self, fail: bool = True) -> None:
+        self.run_calls = 0
+        self._fail = fail
+
+    def get_inputs(self) -> list[_FakeInput]:
+        return [_FakeInput()]
+
+    def run(self, *_a: object, **_k: object):
+        self.run_calls += 1
+        if self._fail:
+            raise RuntimeError("boom")
+        return [np.zeros((1, 1, 16, 16), dtype=np.float32)]
+
+
+class _FakeRegistry:
+    """session() 返回可替换的当前 session（模拟重新下载/替换模型）。"""
+
+    def __init__(self) -> None:
+        self.sess: _FakeSession | None = None
+
+    def session(self, _key: str) -> _FakeSession:
+        assert self.sess is not None
+        return self.sess
+
+
+def test_subtitle_breaker_stops_retrying_same_session() -> None:
+    reg = _FakeRegistry()
+    s1 = _FakeSession(fail=True)
+    reg.sess = s1
+    p = LocalProvider(reg, templates_dir=None)
+    frames = [(0.0, make_frame())]
+    for _ in range(3):
+        assert p.detect_subtitle(frames) == [[]]   # 兜底经典检测照常工作
+    assert s1.run_calls == 2            # 连续失败 2 次 → 第 3 次起熔断不碰模型
+
+    s2 = _FakeSession(fail=True)        # 模型重新下载 → session 换新
+    reg.sess = s2
+    p.detect_subtitle(frames)
+    assert s2.run_calls == 1            # 熔断自动复位，恢复尝试
+
+
+def test_subtitle_breaker_resets_on_success() -> None:
+    reg = _FakeRegistry()
+    reg.sess = _FakeSession(fail=True)
+    p = LocalProvider(reg, templates_dir=None)
+    frames = [(0.0, make_frame())]
+    p.detect_subtitle(frames)           # 失败 1 次（未达熔断阈值）
+    good = _FakeSession(fail=False)
+    reg.sess = good                     # 换好模型
+    assert p.detect_subtitle(frames) == [[]]
+    assert good.run_calls == 1
+    p.detect_subtitle(frames)           # 成功不累积失败计数
+    assert good.run_calls == 2
+
+
+def test_watermark_breaker_stops_retrying_same_session() -> None:
+    reg = _FakeRegistry()
+    s1 = _FakeSession(fail=True)
+    reg.sess = s1
+    p = LocalProvider(reg, templates_dir=None)
+    frames = [(0.0, make_frame())]
+    for _ in range(3):
+        assert p.detect_watermark(frames) == [[]]   # 纯模板兜底（无模板→空）
+    assert s1.run_calls == 2

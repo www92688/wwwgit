@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Protocol
 
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QLabel,
     QMenu,
+    QProgressBar,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -30,6 +33,11 @@ class _SchedulerLike(Protocol):
     task_progress: QObject
 
 
+_TERMINAL_STATES = frozenset(
+    {"success", "failed", "skipped", "interrupted", "canceled"},
+)
+
+
 class PreprocessPage(QWidget):
     """勾素材 → 选项（可手动框选）→ 开始，三步约束。"""
 
@@ -48,6 +56,10 @@ class PreprocessPage(QWidget):
         self._preview_worker: Any | None = None
         self._last_payload: Any = None
         self._last_submit_ts = 0.0
+        # 本页提交、尚未到达终态的批次任务：驱动进度条 + 防重复提交
+        self._batch_tasks: set[str] = set()
+        self._batch_ratios: dict[str, float] = {}
+        self._last_output_dir = ""
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(8)
@@ -59,7 +71,12 @@ class PreprocessPage(QWidget):
         root.addWidget(self._step_hint)
 
         split = QSplitter()
-        self.asset_tree = AssetTree()
+
+        def _has_cleaned(src: str) -> bool:
+            p = Path(src)
+            return (p.with_name("预处理") / f"{p.stem}_cleaned.mp4").exists()
+
+        self.asset_tree = AssetTree(output_probe=_has_cleaned)
         self._empty = attach_empty_state(
             self.asset_tree, self.tr("暂无素材"),
             self.tr("先到「采集工作台」下载素材，\n或把视频文件放入工作目录"),
@@ -97,9 +114,35 @@ class PreprocessPage(QWidget):
         self.btn_start = QPushButton(self.tr("开始处理"))
         self.btn_start.clicked.connect(self._on_start)
         bottom.addWidget(self.btn_preview)
+        # 常驻说明：产物去向是最高频困惑（"放哪里/覆盖吗"），直接写在页面上
+        self._output_hint_src = (
+            "产物保存在原视频同目录的「预处理」文件夹："
+            "<原名>_cleaned.mp4，不覆盖原视频"
+        )
+        self.output_hint = QLabel(self.tr(self._output_hint_src))
+        self.output_hint.setObjectName("muted")
+        bottom.addWidget(self.output_hint)
         bottom.addStretch(1)
+        self.btn_view_output = QPushButton(self.tr("查看产物"))
+        self.btn_view_output.setObjectName("secondaryBtn")
+        self.btn_view_output.setEnabled(False)   # 有产物目录后才可用
+        self.btn_view_output.clicked.connect(self._on_view_output)
+        bottom.addWidget(self.btn_view_output)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setToolTip(
+            self.tr("本页提交的预处理任务进度（完成后自动隐藏）"),
+        )
+        bottom.addWidget(self.progress_bar)
         bottom.addWidget(self.btn_start)
         root.addLayout(bottom)
+
+        # 任务进度接线（测试替身可能把信号属性置 None，做能力探测）
+        if scheduler is not None and getattr(
+                scheduler, "task_state", None) is not None:
+            scheduler.task_state.connect(self._on_task_state)
+            scheduler.task_progress.connect(self._on_task_progress)
 
         # 手动模式：画布新区域注册到面板上下文；清空按钮联动画布
         self.canvas.regions_changed.connect(self._sync_manual_regions)
@@ -212,6 +255,16 @@ class PreprocessPage(QWidget):
                 self, self.tr("处理服务未就绪，无法开始处理"), error=True,
             )
             return
+        if self._batch_tasks:
+            # 上一批仍在跑：再提交会和旧任务写同一批输出文件（曾造成
+            # WinError 32 文件占用失败），必须等终态
+            Toast.show_message(
+                self,
+                self.tr("上一批预处理仍在进行中（进度见进度条），"
+                        "请等它完成后再提交"),
+                error=True,
+            )
+            return
         # 防连点重复提交：同一批次 3 秒内重复点击直接拦截（双击/手抖
         # 会重复提交整批任务，造成重复转码与产物覆盖）
         now = time.monotonic()
@@ -226,8 +279,61 @@ class PreprocessPage(QWidget):
         data: dict[str, object] = getattr(payload, "data", {})
         raw_items = data.get("items") or []
         items: list[object] = list(raw_items) if isinstance(raw_items, list) else []
-        self._scheduler.submit(payload)
+        task_id = str(self._scheduler.submit(payload))
+        self._batch_tasks.add(task_id)
+        self._batch_ratios[task_id] = 0.0
+        self._render_batch_progress()
+        # 提交反馈由 app 层 submitted 信号统一 Toast，此处不重复
         self.submitted.emit(len(items))
+
+    # ---- 批次进度 ----
+    def _on_task_progress(self, task_id: str, ratio: float) -> None:
+        tid = str(task_id)
+        if tid not in self._batch_tasks:
+            return
+        self._batch_ratios[tid] = max(0.0, min(1.0, float(ratio)))
+        self._render_batch_progress()
+
+    def _on_task_state(self, task_id: str, state: str, _message: str) -> None:
+        tid = str(task_id)
+        if tid not in self._batch_tasks:
+            return
+        if state in _TERMINAL_STATES:
+            self._batch_tasks.discard(tid)
+            self._batch_ratios.pop(tid, None)
+            self._render_batch_progress()
+            # 批次终态后产物集合可能变化 → 重建树的 ✓ 已处理标记
+            self.asset_tree.refresh()
+
+    def _render_batch_progress(self) -> None:
+        """无在途批次时隐藏；有则显示各任务进度均值。"""
+        if not self._batch_tasks:
+            self.progress_bar.setVisible(False)
+            self.progress_bar.reset()
+            return
+        self.progress_bar.setVisible(True)
+        ratios = self._batch_ratios.values()
+        self.progress_bar.setValue(int(sum(ratios) / len(ratios) * 100))
+
+    # ---- 产物定位 ----
+    def set_last_output_dir(self, path: str) -> None:
+        """终态回填产物目录（app 层 on_done 调用），点亮「查看产物」。"""
+        self._last_output_dir = str(path)
+        self.btn_view_output.setEnabled(bool(self._last_output_dir))
+
+    def _on_view_output(self) -> None:
+        from ych.ui.u6_common.context_actions import reveal_in_file_manager
+
+        path = getattr(self, "_last_output_dir", "")
+        if not path or not Path(path).is_dir():
+            Toast.show_message(
+                self, self.tr("产物目录不存在或尚未产生"), error=True,
+            )
+            return
+        if not reveal_in_file_manager(path):
+            Toast.show_message(
+                self, self.tr("打开文件管理器失败"), error=True,
+            )
 
     def _manual_without_regions(self) -> bool:
         """手动框选模式但画布没有任何框选区域——提交等于该维度空转。"""
@@ -321,6 +427,8 @@ class PreprocessPage(QWidget):
         self.btn_all.setText(self.tr("全选"))
         self.btn_none.setText(self.tr("全不选"))
         self.btn_preview.setText(self.tr("预览框选帧"))
+        self.output_hint.setText(self.tr(self._output_hint_src))
+        self.btn_view_output.setText(self.tr("查看产物"))
         self.asset_tree.retranslate()
         self.option_panel.retranslate()
         self.canvas.retranslate()

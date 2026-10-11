@@ -243,16 +243,18 @@ def test_subtitle_route(mode: str, soft: bool, found: bool, bottom: bool,
     assert extractor.calls == (6 if (mode == "auto" and not soft) else 0)
 
 
-# ---------- repair_frame 纯逻辑（遮罩生效 + 缓存命中） ----------
+# ---------- repair_frame 纯逻辑（紧凑笔画掩码 + 贴片 + 缓存） ----------
 
 class InpaintProvider:
-    """inpaint 将掩码区填充为绿色（BGR 0,255,0），并计数。"""
+    """inpaint 将掩码区填充为绿色（BGR 0,255,0），记录掩码并计数。"""
 
     def __init__(self) -> None:
         self.calls = 0
+        self.last_mask: np.ndarray | None = None
 
     def inpaint(self, frame, mask):    # type: ignore[no-untyped-def]
         self.calls += 1
+        self.last_mask = mask.copy()
         out = frame.copy()
         out[mask > 0] = (0, 255, 0)
         return out
@@ -269,46 +271,192 @@ class InpaintProvider:
 
 CENTER_SPAN = RegionSpan(bbox=BBox(0.25, 0.25, 0.5, 0.5),
                          t_start=0.0, t_end=10.0)
+CENTER_SPAN_MANUAL = RegionSpan(bbox=BBox(0.25, 0.25, 0.5, 0.5),
+                                t_start=0.0, t_end=10.0, manual=True)
 
 
-def _red_frame() -> np.ndarray:
-    frame = np.full((48, 64, 3), 0, dtype=np.uint8)
-    frame[:, :] = (0, 0, 255)          # BGR 红
+def _noise_frame(seed: int, bright: int = 0) -> np.ndarray:
+    """低幅噪声背景（局部中值≈100+bright），紧凑掩码可稳定区分笔画。"""
+    rng = np.random.default_rng(seed)
+    return rng.integers(88, 113, (48, 64, 3), dtype=np.uint8) + bright
+
+
+def _stroke_frame(seed: int = 7, bright: int = 0) -> np.ndarray:
+    """噪声背景 + 中部白色笔画块（CENTER_SPAN 框内）。"""
+    frame = _noise_frame(seed, bright)
+    frame[18:26, 28:34] = 255          # 笔画块（y12..36 / x16..48 框内）
     return frame
 
 
-def test_repair_frame_mask_and_cache() -> None:
+def test_repair_frame_tight_mask_replaces_strokes_only() -> None:
+    """笔画像素被修复填充，笔画外的背景纹理保持当前帧原样。"""
     provider = InpaintProvider()
     stats = RepairStats()
     cache: dict = {}
     last: dict = {}
-    size = (64, 48)
+    frame = _stroke_frame()
 
-    f1 = repair_frame(_red_frame(), 1.0, [CENTER_SPAN], provider,
-                      cache, last, frame_idx=0, size=size, stats=stats)
+    f1 = repair_frame(frame, 1.0, [CENTER_SPAN], provider,
+                      cache, last, frame_idx=0, size=(64, 48), stats=stats)
     assert provider.calls == 1
-    # 中部被替换为绿色，四角保持红色
+    assert provider.last_mask is not None
+    # 掩码覆盖笔画、不覆盖远处背景（整框掩码是旧缺陷，回归护栏）
+    assert provider.last_mask[22, 30] == 255
+    assert provider.last_mask[12, 16] == 0
+    # 笔画中心 = 修复填充；框内远处背景与框外角落 = 原像素
+    assert (f1[22, 30] == (0, 255, 0)).all()
+    assert (f1[33, 18] == frame[33, 18]).all()
+    assert (f1[2, 2] == frame[2, 2]).all()
+
+
+def test_repair_frame_auto_empty_mask_skips() -> None:
+    """auto 区域内无可辨识笔画（纯色/纯背景）：不推理、不贴片。"""
+    provider = InpaintProvider()
+    stats = RepairStats()
+    cache: dict = {}
+    last: dict = {}
+    frame = _noise_frame(3)
+    frame[:, :] = (0, 0, 255)          # 纯色框内容 → 紧凑掩码为空
+
+    f1 = repair_frame(frame, 1.0, [CENTER_SPAN], provider,
+                      cache, last, frame_idx=0, size=(64, 48), stats=stats)
+    assert provider.calls == 0
+    assert (f1 == frame).all()
+
+
+def test_repair_frame_manual_empty_mask_falls_back_full_box() -> None:
+    """手动框选 + 纯色内容：遵循用户意图回退整框修复。"""
+    provider = InpaintProvider()
+    stats = RepairStats()
+    cache: dict = {}
+    last: dict = {}
+    frame = _noise_frame(3)
+    frame[:, :] = (0, 0, 255)
+
+    f1 = repair_frame(frame, 1.0, [CENTER_SPAN_MANUAL], provider,
+                      cache, last, frame_idx=0, size=(64, 48), stats=stats)
+    assert provider.calls == 1
+    assert (f1[24, 32] == (0, 255, 0)).all()    # 框中心 = 修复填充
+    assert (f1[2, 2] == frame[2, 2]).all()      # 框外保持原样
+
+
+def test_repair_frame_dense_content_falls_back_full_box() -> None:
+    """框内几乎全是笔画（致密台标）：整框修复而非碎片掩码。"""
+    provider = InpaintProvider()
+    stats = RepairStats()
+    cache: dict = {}
+    last: dict = {}
+    frame = _noise_frame(5)
+    frame[13:35, 17:47] = 255          # 占框内 ~85%（含边缘留噪声）
+
+    f1 = repair_frame(frame, 1.0, [CENTER_SPAN], provider,
+                      cache, last, frame_idx=0, size=(64, 48), stats=stats)
+    assert provider.calls == 1
     assert (f1[24, 32] == (0, 255, 0)).all()
-    assert (f1[2, 2] == (0, 0, 255)).all()
 
-    # 第 2 帧命中缓存（<30 帧不刷新）
-    f2 = repair_frame(_red_frame(), 1.5, [CENTER_SPAN], provider,
-                      cache, last, frame_idx=1, size=size, stats=stats)
+
+def test_repair_frame_cache_hit_and_period_refresh() -> None:
+    """静止画面吃满缓存周期；≥30 帧强制刷新。"""
+    provider = InpaintProvider()
+    stats = RepairStats()
+    cache: dict = {}
+    last: dict = {}
+    frame = _stroke_frame()
+
+    repair_frame(frame.copy(), 1.0, [CENTER_SPAN], provider,
+                 cache, last, frame_idx=0, size=(64, 48), stats=stats)
     assert provider.calls == 1
+    f2 = repair_frame(frame.copy(), 1.5, [CENTER_SPAN], provider,
+                      cache, last, frame_idx=1, size=(64, 48), stats=stats)
+    assert provider.calls == 1                  # 命中缓存不再推理
     assert stats.cache_hits == 1
-    assert (f2[24, 32] == (0, 255, 0)).all()
+    assert (f2[22, 30] == (0, 255, 0)).all()    # 贴片仍生效
 
-    # 时间窗外不修复
-    f3 = repair_frame(_red_frame(), 99.0, [CENTER_SPAN], provider,
-                      cache, last, frame_idx=2, size=size, stats=stats)
-    assert (f3[24, 32] == (0, 0, 255)).all()
-    assert stats.cache_hits == 1
-
-    # ≥30 帧后强制刷新缓存
-    repair_frame(_red_frame(), 2.0, [CENTER_SPAN], provider,
-                 cache, last, frame_idx=31, size=size, stats=stats)
-    assert provider.calls == 2
+    repair_frame(frame.copy(), 2.0, [CENTER_SPAN], provider,
+                 cache, last, frame_idx=31, size=(64, 48), stats=stats)
+    assert provider.calls == 2                  # 周期到 → 强制刷新
     assert stats.inpaint_calls == 2
+
+
+def test_repair_frame_adaptive_refresh_on_motion() -> None:
+    """背景大幅运动：未到 30 帧也立即刷新（旧贴片会穿帮）。"""
+    provider = InpaintProvider()
+    stats = RepairStats()
+    cache: dict = {}
+    last: dict = {}
+    frame1 = _stroke_frame(seed=7)
+    frame2 = _stroke_frame(seed=8, bright=60)   # 背景整体抬升 → 大偏差
+
+    repair_frame(frame1.copy(), 1.0, [CENTER_SPAN], provider,
+                 cache, last, frame_idx=0, size=(64, 48), stats=stats)
+    assert provider.calls == 1
+    r2 = repair_frame(frame2, 1.1, [CENTER_SPAN], provider,
+                      cache, last, frame_idx=1, size=(64, 48), stats=stats)
+    assert provider.calls == 2                  # 自适应刷新触发
+    assert (r2[22, 30] == (0, 255, 0)).all()    # 新背景上笔画仍被修复
+
+
+# ---------- 时间一致性掩码（静态水印兜底证据） ----------
+
+def test_temporal_mask_catches_static_faint_strokes() -> None:
+    """静态淡笔画：单帧低于阈值，但跨帧一致 → 时间掩码整段收进。"""
+    rng = np.random.default_rng(2)
+    patches = []
+    for _i in range(6):
+        # 大贴片：掩码带 ~32px 光晕外扩，远处背景断言需离笔画足够远
+        p = rng.integers(88, 113, (120, 160, 3), dtype=np.uint8)
+        # 淡笔画：与背景差仅 ~20（单帧阈值 12/自适应后接近噪声，易漏）
+        p[55:63, 75:81] = rng.integers(105, 120, (8, 6, 3), dtype=np.uint8)
+        patches.append(p)
+    from ych.core.m2_preprocess.frame_level_processor import temporal_stroke_mask
+
+    mask = temporal_stroke_mask(patches)
+    assert mask is not None
+    assert mask[59, 77] == 255                  # 笔画被收进掩码
+    assert mask[8, 8] == 0                      # 远处背景不误标
+
+
+def test_temporal_mask_ignores_moving_content() -> None:
+    """只在个别帧出现的亮斑（噪声/运动物）：时间掩码不收。"""
+    rng = np.random.default_rng(4)
+    patches = []
+    for i in range(6):
+        p = rng.integers(88, 113, (48, 64, 3), dtype=np.uint8)
+        pos = (8 + i * 5, 8 + i * 8)            # 亮斑逐帧移动
+        p[pos[0]:pos[0] + 6, pos[1]:pos[1] + 6] = 255
+        patches.append(p)
+    from ych.core.m2_preprocess.frame_level_processor import temporal_stroke_mask
+
+    assert temporal_stroke_mask(patches) is None
+
+
+def test_repair_frame_prefers_temporal_mask() -> None:
+    """span 带时间掩码：修复与回贴都用它（单帧紧凑掩码失效也照修）。"""
+    from ych.services.s2_ai.postprocess import RegionSpan as RS
+
+    provider = InpaintProvider()
+    stats = RepairStats()
+    cache: dict = {}
+    last: dict = {}
+    frame = _noise_frame(3)
+    frame[:, :] = (0, 0, 255)                   # 纯色：单帧紧凑掩码为空
+    tmask = np.zeros((24, 32), dtype=np.uint8)
+    tmask[8:16, 12:18] = 255                    # 时间证据：框内笔画在此
+    span = RS(bbox=BBox(0.25, 0.25, 0.5, 0.5), t_start=0.0, t_end=10.0,
+              temporal_mask=tmask)
+
+    f1 = repair_frame(frame, 1.0, [span], provider,
+                      cache, last, frame_idx=0, size=(64, 48), stats=stats)
+    assert provider.calls == 1
+    assert provider.last_mask is not None
+    assert provider.last_mask[24, 30] == 255    # 掩码来自时间证据（块内部点）
+    assert (f1[24, 30] == (0, 255, 0)).all()    # 笔画被修复
+    assert (f1[4, 4] == frame[4, 4]).all()      # 掩码外原样
+
+    f2 = repair_frame(frame, 1.5, [span], provider,
+                      cache, last, frame_idx=1, size=(64, 48), stats=stats)
+    assert provider.calls == 1                  # 缓存命中
+    assert (f2[24, 30] == (0, 255, 0)).all()    # 贴片仍按时间掩码生效
 
 
 

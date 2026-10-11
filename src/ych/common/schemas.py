@@ -88,6 +88,7 @@ class MediaInfo:
     width: int = 0
     height: int = 0
     fps: float = 0.0
+    avg_fps: float = 0.0              # 平均帧率：与 r_frame_rate 差异大 = VFR
     vcodec: str = ""
     acodec: str = ""
     has_audio: bool = False

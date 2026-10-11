@@ -200,6 +200,116 @@ def test_searcher_no_pool_no_keyword_notes_unavailable(tmp_path: Path) -> None:
     assert report.targets == []
 
 
+# ---------- 在线候选阶段：进度推进 / 预算超时 / 取消传播 ----------
+
+def _searcher_with_candidates(
+    tmp_path: Path, feats: dict, metas: list,
+    downloader=None,
+) -> CandidateSearcher:
+    """候选平台可用且返回给定 metas 的 searcher。"""
+
+    class OkPlugin:
+        id = "pexels"
+        region = "cn"
+
+        def search(self, keyword, filters, max_count, token):   # type: ignore[no-untyped-def]
+            return list(metas)[:max_count]
+
+    class FakeManager:
+        def enabled(self, region):   # type: ignore[no-untyped-def]
+            # 与真实 plugin_manager 一致：插件只属于声明区域，不跨区域重复
+            return [OkPlugin()] if region == "cn" else []
+
+        def availability(self, plugin, force=False):   # type: ignore[no-untyped-def]
+            return (True, "ok")
+
+    if downloader is None:
+        # 真实落一个文件（fetch_or_download 会 os.replace 到缓存位）
+        def downloader(m, d, t):   # type: ignore[no-untyped-def]
+            d.write_bytes(b"x")
+            return d
+    return CandidateSearcher(
+        feature_extract=lambda p, token=None: feats[str(Path(p))],
+        calculator=SimilarityCalculator(), builder=ReportBuilder(_FakeDao()),
+        plugin_manager=FakeManager(),      # type: ignore[arg-type]
+        cache=CandidateCache(downloader=downloader,
+                             root=tmp_path / "cache"),
+        workdirs=SimpleNamespace(workdir=lambda: tmp_path),   # type: ignore[arg-type]
+        config=ConfigService(), prober=None,   # type: ignore[arg-type]
+    )
+
+
+def test_searcher_progress_covers_candidate_phase(tmp_path: Path) -> None:
+    """在线候选阶段进度按条推进（45%→95%），不再长时间停在 45%。"""
+    src = tmp_path / "src.mp4"
+    src.write_bytes(b"x")
+    feats = {str(src): _feat_for("src")}
+    metas = [SimpleNamespace(plugin_id="pexels", video_key=f"v{i}",
+                             title=f"候选{i}", page_url="") for i in range(3)]
+    for i in range(3):
+        feats[str(tmp_path / "cache" / "pexels" / f"v{i}.mp4")] = _feat_for(f"v{i}")
+    searcher = _searcher_with_candidates(tmp_path, feats, metas)
+
+    ratios: list[float] = []
+    report = searcher.run(src, mode="auto", keyword="地毯",
+                          on_progress=ratios.append,
+                          token=CancellationToken())
+    assert ratios[-1] == pytest.approx(1.0)
+    assert ratios == sorted(ratios)                  # 单调推进
+    assert any(0.45 < r < 0.95 for r in ratios)      # 候选阶段有中间值
+    ok = [t for t in report.targets if t.status == "ok"]
+    assert len(ok) == 3                              # 3 个候选全部评分
+
+
+def test_searcher_candidate_timeout_skips_not_hangs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """慢下载超过合并预算：该候选记 skip，整体不被拖死。"""
+    from ych.core.m3_dedup import candidate_searcher as cs_mod
+
+    src = tmp_path / "src.mp4"
+    src.write_bytes(b"x")
+    feats = {str(src): _feat_for("src")}
+
+    def slow_download(m, d, t):   # type: ignore[no-untyped-def]
+        import time as _t
+        _t.sleep(5)
+        return d
+
+    metas = [SimpleNamespace(plugin_id="pexels", video_key="slow",
+                             title="慢候选", page_url="")]
+    searcher = _searcher_with_candidates(tmp_path, feats, metas,
+                                         downloader=slow_download)
+    monkeypatch.setattr(cs_mod, "_CANDIDATE_BUDGET_S", 0.3)
+    report = searcher.run(src, mode="auto", keyword="地毯",
+                          token=CancellationToken())
+    skipped = [t for t in report.targets if t.status == "skipped"]
+    assert len(skipped) == 1
+    assert "超时" in skipped[0].status_reason
+
+
+def test_searcher_cancel_in_candidate_propagates(tmp_path: Path) -> None:
+    """取消从候选下载向上传播，整体任务置 canceled。"""
+    from ych.common.cancellation import TaskCanceled
+
+    src = tmp_path / "src.mp4"
+    src.write_bytes(b"x")
+    feats = {str(src): _feat_for("src")}
+
+    def cancel_download(m, d, t):   # type: ignore[no-untyped-def]
+        if t is not None:
+            t.cancel()
+        raise TaskCanceled("下载已被取消")
+
+    metas = [SimpleNamespace(plugin_id="pexels", video_key="v0",
+                             title="候选", page_url="")]
+    searcher = _searcher_with_candidates(tmp_path, feats, metas,
+                                         downloader=cancel_download)
+    with pytest.raises(TaskCanceled):
+        searcher.run(src, mode="auto", keyword="地毯",
+                     token=CancellationToken())
+
+
 # ---------- DedupPipeline._compare_scores：本地池兜底 ----------
 
 def _ident_feat() -> FeatureSet:
@@ -246,6 +356,38 @@ def test_compare_scores_pool_fallback_real_numbers(tmp_path: Path) -> None:
     # 相同特征 → 构图/运镜满分、节奏直方图 0 → 综合 87.5%
     assert before == pytest.approx(87.5)
     assert after is not None and after < 50.0
+
+
+def test_compare_scores_reports_progress_per_extraction(tmp_path: Path) -> None:
+    """对比阶段进度：输出+源+2 目标共 4 次特征提取，值落在 (0.7, 1.0) 段。"""
+    wd = tmp_path / "wd"
+    src, sibs = _make_layout(wd)
+    out = wd / "已去重" / "清洗类" / "地毯" / "2026-09-05" / "pexels_地毯_001_deduped.mp4"
+    feats = {str(p): _ident_feat() for p in [src, *sibs]}
+    feats[str(out)] = _ortho_feat()
+    pipeline = _pipeline(tmp_path, wd, feats)
+
+    ratios: list[float] = []
+    before, _after = pipeline._compare_scores(
+        src, out, on_progress=ratios.append)
+    assert before == pytest.approx(87.5)
+    assert len(ratios) == 4                 # 每完成一次特征提取推进一步
+    assert all(0.7 < r < 1.0 for r in ratios)
+    assert ratios == sorted(ratios)         # 单调推进，不再卡死
+    assert ratios[-1] == pytest.approx(0.99)
+
+
+def test_compare_scores_parallel_matches_serial(tmp_path: Path) -> None:
+    """线程池并行提取与串行结果一致（分数语义不变的回归护栏）。"""
+    wd = tmp_path / "wd"
+    src, sibs = _make_layout(wd)
+    out = wd / "已去重" / "清洗类" / "地毯" / "2026-09-05" / "pexels_地毯_001_deduped.mp4"
+    feats = {str(p): _ident_feat() for p in [src, *sibs]}
+    feats[str(out)] = _ortho_feat()
+    pipeline = _pipeline(tmp_path, wd, feats)
+    first = pipeline._compare_scores(src, out)
+    second = pipeline._compare_scores(src, out)
+    assert first == second == (pytest.approx(87.5), pytest.approx(31.2))
 
 
 def test_compare_scores_prefers_report_targets(tmp_path: Path) -> None:

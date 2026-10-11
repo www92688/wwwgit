@@ -379,6 +379,47 @@ def test_asset_tree_check_cascades(qapp, qtbot) -> None:
     assert len(tree.checked_files()) == 2
 
 
+def test_asset_tree_marks_done_outputs(qapp, qtbot, tmp_path) -> None:
+    """已有 _cleaned 产物的叶子标 ✓（重跑会跳过，一眼可辨）；refresh 更新。"""
+    from pathlib import Path
+
+    from ych.services.s3_db.daos import AssetRow
+    from ych.ui.u2_preprocess.asset_tree import AssetTree
+
+    done_src = tmp_path / "a.mp4"
+    done_src.write_bytes(b"x")
+    prep = tmp_path / "预处理"
+    prep.mkdir()
+    (prep / "a_cleaned.mp4").write_bytes(b"o")     # 产物已存在
+    pending = tmp_path / "b.mp4"
+    pending.write_bytes(b"x")
+
+    def _row(path: Path) -> AssetRow:
+        return AssetRow(id=0, path=str(path), kind="raw", size_bytes=1,
+                        duration_s=1.0, width=64, height=48, mtime=0.0,
+                        category="清洗类", keyword="地毯",
+                        date_str="2026-09-05", indexed_at="")
+
+    def _probe(src: str) -> bool:
+        p = Path(src)
+        return (p.with_name("预处理") / f"{p.stem}_cleaned.mp4").exists()
+
+    tree = AssetTree(output_probe=_probe)
+    qtbot.addWidget(tree)
+    tree.set_assets([_row(done_src), _row(pending)])
+
+    def _leaf_texts(t: AssetTree) -> list[str]:
+        kw_node = t.topLevelItem(0).child(0)     # 大类 → 关键词 → 叶子
+        return [kw_node.child(i).text(0)
+                for i in range(kw_node.childCount())]
+
+    assert _leaf_texts(tree) == ["a.mp4 ✓", "b.mp4"]
+
+    (prep / "b_cleaned.mp4").write_bytes(b"o")     # 模拟批次产出
+    tree.refresh()
+    assert _leaf_texts(tree) == ["a.mp4 ✓", "b.mp4 ✓"]
+
+
 def test_preprocess_preview_and_empty_selection_toast(
     qapp, qtbot, tmp_path, monkeypatch,
 ) -> None:
@@ -451,6 +492,63 @@ def test_dedup_empty_selection_toast(qapp, qtbot, monkeypatch) -> None:
     assert got == {}
 
 
+def test_dedup_page_busy_tracks_submitted_task(qapp, qtbot) -> None:
+    """busy 态：track 后按钮禁用+进度条显示，进度实时推进，终态解除。"""
+    from PySide6.QtCore import QObject, Signal
+
+    from ych.core.m3_dedup.techniques.registry import make_default_registry
+    from ych.ui.u3_dedup.dedup_page import DedupPage
+
+    class _Sched(QObject):
+        task_progress = Signal(str, float)
+        task_done = Signal(str, str, str, str, object)
+
+    sched = _Sched()
+    page = DedupPage(registry=make_default_registry(), scheme_manager=None)
+    qtbot.addWidget(page)
+    page.set_assets([r"C:\wd\已去重\清洗类\地毯\2026-08-25\a_deduped.mp4"])
+    page.attach_scheduler(sched)
+    assert page.btn_start.isEnabled()       # 有勾选、非 busy：可用
+
+    page.track_task("t1")
+    assert not page.btn_start.isEnabled()   # busy：防重复提交
+    assert page.btn_analyze.isEnabled() is False
+    assert not page._busy_widget.isHidden()
+
+    sched.task_progress.emit("t1", 0.45)
+    assert page.progress_bar.value() == 45
+    sched.task_progress.emit("other-task", 0.9)   # 别的任务不影响本页
+    assert page.progress_bar.value() == 45
+
+    sched.task_done.emit("t1", "dedup", "success", "", {})
+    assert page._busy_widget.isHidden()     # 终态解除 busy
+    assert page.btn_start.isEnabled()
+
+
+def test_dedup_page_busy_survives_until_all_tasks_done(qapp, qtbot) -> None:
+    """批次多任务：全部终态才解除 busy（单任务完成不算完）。"""
+    from PySide6.QtCore import QObject, Signal
+
+    from ych.core.m3_dedup.techniques.registry import make_default_registry
+    from ych.ui.u3_dedup.dedup_page import DedupPage
+
+    class _Sched(QObject):
+        task_progress = Signal(str, float)
+        task_done = Signal(str, str, str, str, object)
+
+    sched = _Sched()
+    page = DedupPage(registry=make_default_registry(), scheme_manager=None)
+    qtbot.addWidget(page)
+    page.attach_scheduler(sched)
+
+    page.track_task("t1")
+    page.track_task("t2")
+    sched.task_done.emit("t1", "dedup", "success", "", {})
+    assert not page._busy_widget.isHidden()
+    sched.task_done.emit("t2", "dedup", "failed", "x", {})
+    assert page._busy_widget.isHidden()
+
+
 def test_wire_task_feedback(qapp, qtbot, tmp_path, monkeypatch) -> None:
     """任务终态反馈：下载不提示、报告回填、失败/去重对比 Toast。"""
     from types import SimpleNamespace
@@ -482,11 +580,14 @@ def test_wire_task_feedback(qapp, qtbot, tmp_path, monkeypatch) -> None:
     dedup_results: list[dict] = []
     dedup = SimpleNamespace(render_report=rendered.append,
                             show_dedup_result=dedup_results.append)
+    output_dirs: list[str] = []
+    preprocess = SimpleNamespace(set_last_output_dir=output_dirs.append)
     parent = QWidget()
     qtbot.addWidget(parent)
     compare_srcs: dict[str, list[str]] = {}
 
-    toast = wire_task_feedback(ctx, sigs, dedup, parent, compare_srcs)
+    toast = wire_task_feedback(ctx, sigs, dedup, preprocess, parent,
+                               compare_srcs)
     toast("已提交 3 条预处理任务")
     assert captured[-1] == ("已提交 3 条预处理任务", False)
 
@@ -506,6 +607,27 @@ def test_wire_task_feedback(qapp, qtbot, tmp_path, monkeypatch) -> None:
 
     sigs.task_done.emit("t3", "preprocess", "failed", "[AI001] 模型缺失", {})
     assert captured[-1][1] is True and "AI001" in captured[-1][0]
+
+    # 预处理成功：Toast 带产物目录，并回填「查看产物」
+    sigs.task_done.emit(
+        "t3b", "preprocess", "success", "",
+        {"outputs": [r"D:\w\a_cleaned.mp4"], "failed": 0, "skipped": 0,
+         "output_dir": r"D:\w"},
+    )
+    assert "预处理完成" in captured[-1][0] and r"D:\w" in captured[-1][0]
+    assert "不覆盖" in captured[-1][0]
+    assert output_dirs == [r"D:\w"]
+    # 全部「输出已存在」：讲清原因与出路，不回填查看产物
+    sigs.task_done.emit(
+        "t3c", "preprocess", "success", "",
+        {"outputs": [], "failed": 0, "skipped": 1,
+         "skipped_names": ["a.mp4"], "failed_msgs": [],
+         "output_dir": r"D:\w"},
+    )
+    assert "输出已存在" in captured[-1][0] and "a.mp4" in captured[-1][0]
+    assert "_cleaned.mp4" in captured[-1][0]
+    # 全部跳过也回填产物目录：点「查看产物」正好核对/删除已有产物
+    assert output_dirs == [r"D:\w", r"D:\w"]
 
     sigs.task_done.emit("t4", "dedup", "success", "",
                         {"outputs": ["o"], "failed": 0, "skipped": 0,

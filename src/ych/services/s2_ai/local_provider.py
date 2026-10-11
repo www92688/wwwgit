@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -20,6 +22,7 @@ logger = logging.getLogger("ych.s2")
 _WM_CONF_THRESHOLD = 0.45
 _WM_NMS_IOU = 0.45
 _SUB_MERGE_IOU = 0.3
+_BREAK_AFTER = 2     # 推理连续失败达此次数即熔断（本会话直接走兜底）
 _INPAINT_TILE = 512
 _SMALL_PATCH_PX = 32
 # CLIP 归一化常量（OpenAI CLIP ViT-B/32）
@@ -33,6 +36,46 @@ class LocalProvider:
     def __init__(self, registry: ModelRegistry, templates_dir: Path | None = None) -> None:
         self._registry = registry
         self._matcher = TemplateMatcher(templates_dir) if templates_dir else None
+        # 推理熔断：key → (session 对象, 连续失败数)。同一 session 连续失败
+        # 达阈值后本会话直接走兜底（模型文件坏了每次重试只是白耗时）；
+        # session 换新（设置页重新下载/替换模型）自动复位恢复尝试。
+        self._breakers: dict[str, tuple[object, int]] = {}
+        # ONNX 推理串行锁：DML 会话并发 run 会触发 D3D12 设备竞争
+        # （实测段错误/驱动报错，且错误消息含 GBK 时还会引发 utf-8 解码
+        # 异常）。解码/CV 等重活仍各线程并行，仅推理临界区串行——推理
+        # 占单条特征提取耗时的很小部分，不构成吞吐瓶颈
+        self._infer_lock = threading.Lock()
+
+    def _run_session(self, sess: Any,
+                     *input_arrays: npt.NDArray[np.float32],
+                     feed: dict[str, npt.NDArray[np.float32]] | None = None,
+                     ) -> list[npt.NDArray[np.float32]]:
+        """进程内唯一推理入口：串行化 sess.run（线程安全边界）。
+
+        单输入模型按位置喂入；多输入模型（LaMa）显式传 feed 以免
+        依赖 session 的输入声明顺序。
+        """
+        with self._infer_lock:
+            if feed is None:
+                names = [i.name for i in sess.get_inputs()]
+                feed = dict(zip(names, input_arrays, strict=True))
+            return list(sess.run(None, feed))
+
+    def _breaker_tripped(self, key: str, sess: object) -> bool:
+        entry = self._breakers.get(key)
+        if entry is None or entry[0] is not sess:
+            self._breakers.pop(key, None)
+            return False
+        return entry[1] >= _BREAK_AFTER
+
+    def _breaker_record(self, key: str, sess: object) -> int:
+        entry = self._breakers.get(key)
+        count = entry[1] + 1 if entry is not None and entry[0] is sess else 1
+        self._breakers[key] = (sess, count)
+        return count
+
+    def _breaker_reset(self, key: str) -> None:
+        self._breakers.pop(key, None)
 
     # ---- 内部：letterbox 到方形输入 ----
     @staticmethod
@@ -55,24 +98,35 @@ class LocalProvider:
         self, frames: list[tuple[float, npt.NDArray[np.uint8]]]
     ) -> list[list[Detection]]:
         """YOLO 检测 → conf≥0.45 → NMS(0.45) → 反算坐标；
-        结果不足且模板库可用时 TemplateMatcher 补充；模型缺失走纯模板兜底。"""
+        结果不足且模板库可用时 TemplateMatcher 补充；模型缺失走纯模板兜底。
+        兼容两种输出布局：自训模型 (N,≥5) 已带 NMS；标准 ultralytics
+        导出 (C,anchors) 预 NMS（公开水印模型即此格式）。"""
         try:
             sess = self._registry.session("watermark")
         except AppError as exc:
             logger.warning("水印检测模型不可用（%s），降级 TemplateMatcher", exc.code)
             sess = None
 
+        if sess is not None and self._breaker_tripped("watermark", sess):
+            return self._watermark_template_only(frames)
         per_frame: list[list[Detection]] = []
         try:
             for ts, frame in frames:
                 dets: list[Detection] = []
                 if sess is not None:
                     blob, scale, (pad_x, pad_y) = self._letterbox(frame, 640)
-                    input_name = sess.get_inputs()[0].name
-                    outputs = sess.run(
-                        None, {input_name: blob[None].astype(np.float32)},
+                    outputs = self._run_session(
+                        sess, blob[None].astype(np.float32),
                     )
-                    preds = np.asarray(outputs[0])[0]   # (N, 6)
+                    preds = np.asarray(outputs[0], dtype=np.float32)[0]
+                    if preds.ndim == 2 and preds.shape[0] <= 10 \
+                            and preds.shape[1] >= 100:
+                        # 通道优先预 NMS：转成行布局，分数取各通道最大
+                        conf_col = preds[4:].max(axis=0)
+                        preds = np.column_stack([preds[:4].T, conf_col])
+                    if preds.ndim == 2 and len(preds):
+                        # 向量化预过滤（预 NMS 有 8400 锚点行，避免逐行 Python 循环）
+                        preds = preds[preds[:, 4] >= _WM_CONF_THRESHOLD]
                     h, w = frame.shape[:2]
                     for row in preds:
                         cx, cy, bw, bh, conf = (
@@ -100,11 +154,21 @@ class LocalProvider:
                         and self._matcher.available():
                     dets.extend(self._matcher.match(frame, ts=ts))
                 per_frame.append(dets)
-            return per_frame
         except Exception as exc:
             # D2 降级：模型契约不符/推理失败不致命，模板兜底仍可用则继续
-            logger.warning("水印模型推理失败，降级模板兜底：%s", exc)
+            count = self._breaker_record("watermark", sess)
+            if count >= _BREAK_AFTER:
+                logger.warning(
+                    "水印模型推理失败（%s）；连续 %d 次失败，本次运行内"
+                    "走纯模板兜底（重新下载/替换模型后自动恢复）",
+                    exc, count,
+                )
+            else:
+                logger.warning("水印模型推理失败，降级模板兜底：%s", exc)
             return self._watermark_template_only(frames)
+        if sess is not None:
+            self._breaker_reset("watermark")
+        return per_frame
 
     def _watermark_template_only(
         self, frames: list[tuple[float, npt.NDArray[np.uint8]]],
@@ -128,6 +192,8 @@ class LocalProvider:
                 "字幕模型不可用（%s），降级经典文字带检测", exc.code,
             )
             return self._detect_subtitle_classical(frames)
+        if self._breaker_tripped("subtitle", sess):
+            return self._detect_subtitle_classical(frames)
         per_frame: list[list[Detection]] = []
         try:
             for ts, frame in frames:
@@ -137,10 +203,13 @@ class LocalProvider:
                 nh = max(32, round(h * scale / 32) * 32)
                 resized = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_LINEAR)
                 arr = resized.astype(np.float32).transpose(2, 0, 1) / 255.0
-                arr = (arr - arr.mean()) / max(arr.std(), 1e-6)
-                input_name = sess.get_inputs()[0].name
-                outputs = sess.run(None, {input_name: arr[None].astype(np.float32)})
-                prob = np.asarray(outputs[0])[0]
+                # PP-OCR det 标准归一化 (x-0.5)/0.5：实测全局 mean/std 会让
+                # 概率图碎裂（整行字幕断成多条薄片框）
+                arr = (arr - 0.5) / 0.5
+                outputs = self._run_session(sess, arr[None].astype(np.float32))
+                prob = np.asarray(outputs[0])[0]    # (1,H,W) 或 (H,W)
+                if prob.ndim == 3:                  # 挤掉通道维 → (H,W) 概率图
+                    prob = prob[0]
                 mask = (prob > 0.3).astype(np.uint8)
                 contours, _ = cv2.findContours(
                     mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -157,11 +226,20 @@ class LocalProvider:
                         ts=ts,
                     ))
                 per_frame.append(merge_boxes(dets, _SUB_MERGE_IOU))
-            return per_frame
         except Exception as exc:
             # D2 降级：模型契约不符/推理运行期失败 → 整批走经典文字带
-            logger.warning("字幕模型推理失败，整批降级经典检测：%s", exc)
+            count = self._breaker_record("subtitle", sess)
+            if count >= _BREAK_AFTER:
+                logger.warning(
+                    "字幕模型推理失败（%s）；连续 %d 次失败，本次运行内"
+                    "直接走经典检测（重新下载/替换模型后自动恢复）",
+                    exc, count,
+                )
+            else:
+                logger.warning("字幕模型推理失败，整批降级经典检测：%s", exc)
             return self._detect_subtitle_classical(frames)
+        self._breaker_reset("subtitle")
+        return per_frame
 
     @staticmethod
     def _detect_subtitle_classical(
@@ -248,22 +326,27 @@ class LocalProvider:
             logger.warning("修复模型不可用（%s），降级 INPAINT_TELEA", exc.code)
             return cv2.inpaint(frame, mask, 3, cv2.INPAINT_TELEA).astype(np.uint8)
 
-        # 外扩 patch 含上下文，resize 到 512 tile 推理
-        margin = int(max(pw, ph) * 0.12) + 8
-        cx0, cy0 = max(0, x0 - margin), max(0, y0 - margin)
-        cx1 = min(frame.shape[1], x1 + margin + 1)
-        cy1 = min(frame.shape[0], y1 + margin + 1)
-        patch = frame[cy0:cy1, cx0:cx1]
-        pmask = mask[cy0:cy1, cx0:cx1]
-        orig_h, orig_w = patch.shape[:2]
+        # 正方形上下文裁剪：以掩码中心从真实帧裁 side×side（side=掩码
+        # 长边×1.4，留出泊松求解所需的周边真实背景），等比缩放到 512²
+        # ——模型看到的全是真实内容，无拉伸也无镜像填充
+        side = int(min(max(pw, ph) * 1.4, min(frame.shape[0], frame.shape[1])))
+        side = max(side, max(pw, ph))
+        cx = (x0 + x1 + 1) / 2
+        cy = (y0 + y1 + 1) / 2
+        sx0 = int(min(max(round(cx - side / 2), max(0, x1 - side)),
+                      min(x0, frame.shape[1] - side)))
+        sy0 = int(min(max(round(cy - side / 2), max(0, y1 - side)),
+                      min(y0, frame.shape[0] - side)))
+        patch = frame[sy0:sy0 + side, sx0:sx0 + side]
+        pmask = mask[sy0:sy0 + side, sx0:sx0 + side]
         resized_img = cv2.resize(patch, (_INPAINT_TILE, _INPAINT_TILE))
         resized_mask = cv2.resize(pmask, (_INPAINT_TILE, _INPAINT_TILE),
                                   interpolation=cv2.INTER_NEAREST)
-        img_in = resized_img.astype(np.float32) / 127.5 - 1.0
-        img_in = np.ascontiguousarray(img_in.transpose(2, 0, 1))[None]
+        img_in = np.ascontiguousarray(
+            resized_img.astype(np.float32).transpose(2, 0, 1) / 255.0)[None]
         msk_in = (resized_mask > 0).astype(np.float32)[None, None]
         try:
-            outputs = sess.run(None, {
+            outputs = self._run_session(sess, feed={
                 "image": img_in.astype(np.float32),
                 "mask": msk_in,
             })
@@ -271,17 +354,51 @@ class LocalProvider:
             logger.warning("LaMa 推理失败，降级 INPAINT_TELEA：%s", exc)
             return cv2.inpaint(frame, mask, 3, cv2.INPAINT_TELEA).astype(
                 np.uint8)
+        # Carve/LaMa-ONNX 约定（实测）：输入 image∈[0,1] + mask∈{0,1}，
+        # 输出 0..255 合成帧，掩码外像素与输入逐比特一致
         result = np.asarray(outputs[0])[0]
-        result = ((result.transpose(1, 2, 0) + 1.0) * 127.5).clip(0, 255).astype(np.uint8)
-        back = cv2.resize(result, (orig_w, orig_h))
+        result = result.transpose(1, 2, 0).clip(0, 255).astype(np.uint8)
+        back = cv2.resize(result, (side, side))
 
-        # 羽化 alpha 混合回贴（仅贴 mask 膨胀羽化区域）
-        feather = cv2.GaussianBlur((pmask > 0).astype(np.float32), (17, 17), 8)
-        blended = (back.astype(np.float32) * feather[..., None]
-                   + patch.astype(np.float32) * (1 - feather[..., None]))
+        # 低频梯度校正撤销说明：曾尝试用掩码带边界颜色纵向插值替换
+        # 填充的低频——但掩码带边缘可能切在文字/前景上，参考色被污
+        # 染后反而把带子涂花；泊松融合本身已对齐边界色调，不再叠加
+        pmask_u8 = (pmask > 0).astype(np.uint8) * 255
+        touches_border = bool(pmask_u8[0].any() or pmask_u8[-1].any()
+                              or pmask_u8[:, 0].any() or pmask_u8[:, -1].any())
         out = frame.copy()
-        out[cy0:cy1, cx0:cx1] = blended.astype(np.uint8)
-        return out
+        if touches_border:
+            # 掩码贴正方形边（超大掩码）：泊松无求解余量 → 距离 alpha 混合
+            dist = cv2.distanceTransform((pmask > 0).astype(np.uint8),
+                                         cv2.DIST_L2, 3)
+            alpha = np.clip(dist / 2.5, 0.0, 1.0)[..., None].astype(np.float32)
+            blended = (back.astype(np.float32) * alpha
+                       + patch.astype(np.float32) * (1.0 - alpha))
+            out[sy0:sy0 + side, sx0:sx0 + side] = blended.astype(np.uint8)
+            return out
+        # 泊松融合：填充内容的色调与梯度自动贴合周边真实背景
+        # （无痕关键——消除填充区与渐变天空之间的亮度差和色块边界）
+        pmask_dil = cv2.dilate(pmask_u8,
+                               cv2.getStructuringElement(
+                                   cv2.MORPH_ELLIPSE, (15, 15)))
+        # seamlessClone 把"掩码外接框中心"对齐到 center：必须传掩码框
+        # 中心在全帧坐标的位置。掩码贴画面边时上下文贴片被钳位，掩码
+        # 不居中于贴片，传贴片中心会把填充内容错放到别处（框保持原样）
+        mys, mxs = np.where(pmask_dil > 0)
+        center = (int(sx0 + (mxs.min() + mxs.max() + 1) / 2),
+                  int(sy0 + (mys.min() + mys.max() + 1) / 2))
+        try:
+            return cast(npt.NDArray[np.uint8],
+                        cv2.seamlessClone(back, out, pmask_dil, center,
+                                          cv2.NORMAL_CLONE))
+        except cv2.error:
+            dist = cv2.distanceTransform((pmask > 0).astype(np.uint8),
+                                         cv2.DIST_L2, 3)
+            alpha = np.clip(dist / 2.5, 0.0, 1.0)[..., None].astype(np.float32)
+            blended = (back.astype(np.float32) * alpha
+                       + patch.astype(np.float32) * (1.0 - alpha))
+            out[sy0:sy0 + side, sx0:sx0 + side] = blended.astype(np.uint8)
+            return out
 
     # ---- 关键帧嵌入 ----
     def embed_frames(
@@ -306,8 +423,7 @@ class LocalProvider:
             if not batch:
                 return
             arr = np.stack(batch).astype(np.float32)
-            input_name = sess.get_inputs()[0].name
-            outs = sess.run(None, {input_name: arr})
+            outs = self._run_session(sess, arr)
             vecs = np.asarray(outs[0]).astype(np.float32)
             vectors.extend(vecs)
             batch.clear()
