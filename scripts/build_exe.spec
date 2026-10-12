@@ -78,6 +78,31 @@ hiddenimports = [
     "keyring.backends.Windows",
 ]
 
+# 平台插件由 plugin_manager 经 importlib 动态发现，静态分析不可见，
+# 不列进来打包版启动即崩（ModuleNotFoundError: ...m1_capture.plugins）；
+# 从目录枚举，新增 *_plugin.py 无需改此处
+_plugins_dir = ROOT / "src" / "ych" / "core" / "m1_capture" / "plugins"
+hiddenimports += ["ych.core.m1_capture.plugins"] + [
+    f"ych.core.m1_capture.plugins.{f.stem}"
+    for f in sorted(_plugins_dir.glob("*_plugin.py"))
+]
+
+# 未使用的 PySide6 模块整族排除（体积裁剪）：对应的 Qt6*.dll 与 .pyd
+# 不再入包。⚠ QtMultimedia/QtNetwork 在用（视频预览/缩略图抓取），勿加
+_excluded_qt = [
+    "PySide6.QtQuick", "PySide6.QtQuickWidgets", "PySide6.QtQuickControls2",
+    "PySide6.QtQml", "PySide6.QtPdf", "PySide6.QtPdfWidgets",
+    "PySide6.QtVirtualKeyboard", "PySide6.QtWebEngineCore",
+    "PySide6.QtWebEngineWidgets", "PySide6.QtWebChannel", "PySide6.QtWebSockets",
+    "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtGraphs",
+    "PySide6.QtSql", "PySide6.QtTest", "PySide6.QtDesigner", "PySide6.QtHelp",
+    "PySide6.QtUiTools", "PySide6.QtSensors", "PySide6.QtSerialPort",
+    "PySide6.QtBluetooth", "PySide6.QtNfc", "PySide6.QtPositioning",
+    "PySide6.QtLocation", "PySide6.QtTextToSpeech", "PySide6.QtScxml",
+    "PySide6.QtStateMachine", "PySide6.QtRemoteObjects", "PySide6.QtHttpServer",
+    "PySide6.QtNetworkAuth", "PySide6.QtOpcUa", "PySide6.QtSpatialAudio",
+]
+
 a = Analysis(
     [str(ROOT / "scripts" / "entry_point.py")],
     pathex=[str(ROOT / "src")],
@@ -92,6 +117,7 @@ a = Analysis(
         "tkinter",
         "matplotlib",
         "pandas",
+        *_excluded_qt,
     ],
     noarchive=False,
 )
@@ -122,3 +148,28 @@ coll = COLLECT(
     upx=False,
     name="YuChongGou",
 )
+
+# ---- 构建后裁剪（PyInstaller 的 PySide6 钩子会无视 excludes 收齐全部
+# Qt6*.dll，只能在这里删）。仅删源代码确认未引用的模块族；QtMultimedia
+# 只依赖 Core/Gui/Network（已验证其 PE 导入表），视频预览不受影响 ----
+import shutil as _shutil
+
+_PRUNE_PATTERNS = [
+    "Qt6Quick*.dll", "Qt6Qml*.dll", "Qt6Pdf*.dll", "Qt6VirtualKeyboard.dll",
+    "QtQuick*.pyd", "QtQml*.pyd", "QtPdf*.pyd", "QtPdfWidgets*.pyd",
+    "QtQuickWidgets*.pyd", "QtQuick3D*.pyd", "QtVirtualKeyboard*.pyd",
+]
+_PRUNE_DIRS = ["qml", "QtQuick", "QtQml", "plugins/virtualkeyboard"]
+
+_pyside_dir = Path(DISTPATH) / coll.name / "_internal" / "PySide6"
+_saved = 0
+for _pat in _PRUNE_PATTERNS:
+    for _f in _pyside_dir.glob(_pat):
+        _saved += _f.stat().st_size
+        _f.unlink()
+for _name in _PRUNE_DIRS:
+    _d = _pyside_dir / _name
+    if _d.is_dir():
+        _saved += sum(f.stat().st_size for f in _d.rglob("*") if f.is_file())
+        _shutil.rmtree(_d, ignore_errors=True)
+print(f"[build_exe.spec] 裁剪未用 Qt 模块：{_saved / 1048576:.1f} MB")
